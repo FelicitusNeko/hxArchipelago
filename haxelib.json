@@ -1,6 +1,6 @@
 {
   "name": "hxArchipelago",
-  "url" : "https://127.0.0.1/",
+  "url" : "https://github.com/FelicitusNeko/hxArchipelago/",
   "license": "MIT",
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
