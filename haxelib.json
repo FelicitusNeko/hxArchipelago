@@ -5,10 +5,10 @@
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
   "version": "0.0.1",
-  "classPath": "src/",
   "releasenote": "Initial release",
   "contributors": ["FelicitusNeko"],
   "dependencies": {
-    "hxWebSockets": ""
+    "hxWebSockets": "",
+    "helder.set" : ""
   }
 }
