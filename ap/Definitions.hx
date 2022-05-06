@@ -47,10 +47,15 @@ typedef NetworkPlayer = {
 }
 
 typedef TextNode = {
+  @:optional
   var type:String;
+  @:optional
   var color:String;
+  @:optional
   var text:String;
+  @:optional
   var found:Bool;
+  @:optional
   var flags:ItemFlags;
 }
 

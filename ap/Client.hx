@@ -1,9 +1,12 @@
 package ap;
 
 import ap.Definitions;
+import haxe.exceptions.NotImplementedException;
 import haxe.Int64;
+import haxe.Timer;
 import hx.ws.WebSocket;
 import helder.Set;
+import sys.thread.Mutex;
 
 using StringTools;
 
@@ -50,6 +53,9 @@ class Client {
 	private var _dataPackage:Dynamic;
 	private var _serverConnectTime:Double;
 
+	private var _msgQueue:List<String> = [];
+	private var _msgMutex:Mutex;
+
 	public var state(get, never):State;
 	public var seed(get, never):String;
 	public var slot(get, never):String;
@@ -62,6 +68,7 @@ class Client {
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
 		_checkQueue = new Set();
 		_scoutQueue = new Set();
+		_msgMutex = new Mutex();
 
 		if (uri.length > 0) {
 			var p = uri.indexOf("://");
@@ -140,9 +147,15 @@ class Client {
 	}
 
 	public function set_data_package(data:Dynamic) {
-		// TODO: Gotta figure out how to implement this
 		if (!_dataPackageValid && data.games) {
 			_dataPackage = data;
+			for (game => gamedata in _dataPackage.games) {
+				_dataPackage.games[game] = gamedata;
+				for (itemName => itemId in gamedata.item_name_to_id)
+					_items[itemId] = itemName;
+				for (locationName => locationId in gamedata.location_name_to_id)
+					_locations[locationId] = locationName;
+			}
 		}
 	}
 
@@ -168,8 +181,12 @@ class Client {
 	}
 
 	public function render_json(msg:List<TextNode>, fmt:RenderFormat = RenderFormat.TEXT) {
-		// TODO: this is a stub
-		return "NYI";
+		if (fmt == RenderFormat.HTML) 
+			throw new NotImplementedException("ap.Client.render_json(..., HTML) not yet implemented [upstream]");
+		else {
+			// TODO: this is a stub
+			return "NYI";
+		}
 	}
 
 	private inline function InternalSend(packet:Dynamic):Bool {
@@ -187,7 +204,7 @@ class Client {
 		} else
 			for (i in locations)
 				_checkQueue.add(i);
-		// FIXME: this needs to be sent at some point (same as upstream)
+		// TODO: [upstream] this needs to be sent at some point
 		return true;
 	}
 
@@ -200,7 +217,7 @@ class Client {
 		} else
 			for (i in locations)
 				_checkQueue.add(i);
-		// FIXME: this needs to be sent at some point (same as upstream)
+		// TODO: [upstream] this needs to be sent at some point
 		return true;
 	}
 
@@ -311,19 +328,16 @@ class Client {
 	}
 
 	public function get_server_time():Double {
-		// TODO: not really sure how to do an accurate clock in Haxe
-		return _localConnectTime;
+		return _serverConnectTime + (Timer.stamp() - _localConnectTime);
 	}
 
 	public function poll() {
-		// NOTE: This function may be mostly redundant
 		if (_ws && _state == State.DISCONNECTED) {
 			_ws.close();
 			_ws = null;
 		}
-		// if (_ws) {
-		//   // this is where the CPP component would poll, but hxWebSockets doesn't work that way
-		// }
+		if (_ws)
+			process_queue();
 		if (_state < State.SOCKET_CONNECTED) {
 			var t = time();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
@@ -336,18 +350,169 @@ class Client {
 		}
 	}
 
+	public function process_queue() {
+		_msgMutex.acquire();
+		if (_msgQueue.length > 0)
+			try {
+				for (msg in _msgQueue) {
+					var packet = Json.parse(msg);
+					for (command in packet) {
+						switch (command.cmd) {
+							case "RoomInfo":
+								{
+									_localConnectTime = Timer.stamp();
+									_serverConnectTime = command.time;
+									_seed = command.seed_name;
+									if (_state < State.ROOM_INFO)
+										_state = State.ROOM_INFO;
+									if (_hOnRoomInfo)
+										_hOnRoomInfo();
+
+									_dataPackageValid = true;
+									var exclude:List<String> = [];
+									for (game => ver in command.datapackage_versions) {
+										try {
+											if (ver < 1) {
+												_dataPackageValid = false;
+												continue;
+											}
+											if (!_dataPackage.games[game]) {
+												_dataPackageValid = false;
+												continue;
+											}
+											if (_dataPackage.games[game].version != ver) {
+												_dataPackageValid = false;
+												continue;
+											}
+											exclude.add(game);
+										} catch (e) {
+											trace(e.message);
+											_dataPackageValid = false;
+										}
+									}
+									if (!_dataPackageValid)
+										GetDataPackage(exclude);
+									else
+										debug("DataPackage up to date");
+								}
+
+							case "ConnectionRefused":
+								if (_hOnSlotRefused)
+									_hOnSlotRefused(command.errors);
+
+							case "Connected":
+								_state = State.SLOT_CONNECTED;
+								_team = command.team;
+								_slotnr = command.slot;
+								_players.clear();
+								for (player in command.players)
+									_players.add({
+										team: player.team,
+										slot: player.slot,
+										alias: player.alias,
+										name: player.name
+									});
+								if (_hOnSlotConnected)
+									_hOnSlotConnected(command.slot_data);
+								// TODO: [upstream] store checked/missing locations
+								if (_hOnLocationChecked)
+									_hOnLocationChecked(command.checked_locations);
+
+							case "ReceivedItems":
+								{
+									var items:List<NetworkItem> = [];
+									var index:Int64 = command.index;
+									for (item in command.items)
+										items.add({
+											item: item.item,
+											location: item.location,
+											player: item.player,
+											index: index++
+										});
+									if (_hOnItemsReceived)
+										_hOnItemsReceived(items);
+								}
+
+							case "LocationInfo":
+								{
+									var items:List<NetworkItem> = [];
+									var index:Int64 = command.index;
+									for (item in command.locations)
+										locations.add({
+											item: item.item,
+											location: item.location,
+											player: item.player,
+											index: index++
+										});
+									if (_hOnLocationInfo)
+										_hOnLocationInfo(items);
+								}
+
+							case "RoomUpdate":
+								// TODO: [upstream] store checked/missing locations
+								if (_hOnLocationChecked)
+									_hOnLocationChecked(command.checked_locations);
+
+							case "DataPackage":
+								var data = _dataPackage;
+								if (!data.games)
+									data.games = {};
+								for (game => gameData in command.data.games)
+									data.games[game] = gameData;
+								data.version = command.data.version;
+								_dataPackageValid = false;
+								set_data_package(data);
+								_dataPackageValid = true;
+								if (_hOnDataPackageChanged)
+									_hOnDataPackageChanged(_dataPackage);
+
+							case "Print":
+								if (_hOnPrint)
+									_hOnPrint(command.text);
+
+							case "PrintJSON":
+								if (_hOnPrintJson) {
+									var msg:List<TextNode> = [];
+									// NOTE: very experimental
+									for (part in command.data)
+										msg.add({
+											type: part.type,
+											color: part.color,
+											text: part.text,
+											found: part.found,
+											flags: part.flags
+										});
+									_hOnPrintJson(msg);
+								}
+
+							case "Bounced":
+								if (_hOnBounced)
+									_hOnBounced(command);
+
+							case _:
+								debug("unhandled cmd");
+						}
+					}
+				}
+				_msgQueue.clear();
+			} catch (e) {
+				trace(e.message);
+			}
+		_msgMutex.release();
+	}
+
 	public function reset() {
+		if (_ws)
+			_ws.close();
+		_ws = null;
 		_checkQueue.clear();
 		_scoutQueue.clear();
-		_clientStatus = ClientStatus.UNKNOWN;
 		_seed = "";
 		_slot = "";
 		_team = -1;
 		_slotnr = -1;
 		_players.clear();
-		if (_ws)
-			_ws.close();
-		_ws = null;
+		_clientStatus = ClientStatus.UNKNOWN;
 	}
 
 	private inline function log(msg:String) {
@@ -374,14 +539,17 @@ class Client {
 		if (_state > State.SOCKET_CONNECTING) {
 			log("Server disconnected");
 			_state = State.DISCONNECTED;
-			if (_hOnSocketDisconnected) _hOnSocketDisconnected();
+			if (_hOnSocketDisconnected)
+				_hOnSocketDisconnected();
 		}
 		_state = State.DISCONNECTED;
 		_seed = "";
 	}
 
 	private function onmessage(s:String) {
-		// TODO: this is where the magic happens
+		_msgMutex.acquire();
+		_msgQueue.add(s);
+		_msgMutex.release();
 	}
 
 	private function onerror() {
@@ -389,14 +557,14 @@ class Client {
 	}
 
 	private function connect_socket() {
-		if (_ws) _ws.close();
+		if (_ws)
+			_ws.close();
 		if (_uri.length == 0) {
 			_ws = null;
 			_state = State.DISCONNECTED;
 			return;
 		}
 		_state = State.SOCKET_CONNECTING;
-		// TODO: turns out the websocket apclientpp uses is a wrapper; gonna need to figure that one out
 		_ws = new WebSocket(_uri);
 		_ws.onopen = onopen;
 		_ws.onclose = onclose;
@@ -404,22 +572,29 @@ class Client {
 		_ws.onerror = onerror;
 
 		_lastSocketConnect = time();
-		_socketReconnectInterval *= 2;
-
-		
+		_socketReconnectInterval *= Math.min(_socketReconnectInterval * 2, 15000);
 	}
 
 	private function color2ansi(color:String):String {
 		// convert color to ansi color command
-		if (color == "red") return "\x1b[31m";
-		if (color == "green") return "\x1b[32m";
-		if (color == "yellow") return "\x1b[33m";
-		if (color == "blue") return "\x1b[34m";
-		if (color == "magenta") return "\x1b[35m";
-		if (color == "cyan") return "\x1b[36m";
-		if (color == "plum") return "\x1b[38:5:219m";
-		if (color == "slateblue") return "\x1b[38:5:62m";
-		if (color == "salmon") return "\x1b[38:5:210m";
+		if (color == "red")
+			return "\x1b[31m";
+		if (color == "green")
+			return "\x1b[32m";
+		if (color == "yellow")
+			return "\x1b[33m";
+		if (color == "blue")
+			return "\x1b[34m";
+		if (color == "magenta")
+			return "\x1b[35m";
+		if (color == "cyan")
+			return "\x1b[36m";
+		if (color == "plum")
+			return "\x1b[38:5:219m";
+		if (color == "slateblue")
+			return "\x1b[38:5:62m";
+		if (color == "salmon")
+			return "\x1b[38:5:210m";
 		return "\x1b[0m";
 	}
 
