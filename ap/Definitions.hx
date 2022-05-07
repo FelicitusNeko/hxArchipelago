@@ -1,66 +1,32 @@
 package ap;
 
-import haxe.Json;
-import haxe.Int64;
+@:enum
+abstract State(Int) {
+	var DISCONNECTED = 0;
+	var SOCKET_CONNECTING = 1;
+	var SOCKET_CONNECTED = 2;
+	var ROOM_INFO = 3;
+	var SLOT_CONNECTED = 4;
 
-enum State {
-  DISCONNECTED;
-  SOCKET_CONNECTING;
-  SOCKET_CONNECTED;
-  ROOM_INFO;
-  SLOT_CONNECTED;
+  @:op(A < B) static function lt(a:State, b:State):Bool;
+  @:op(A <= B) static function lte(a:State, b:State):Bool;
+  @:op(A > B) static function gt(a:State, b:State):Bool;
+  @:op(A >= B) static function gte(a:State, b:State):Bool;
+  @:op(A == B) static function eq(a:State, b:State):Bool;
+  @:op(A != B) static function ne(a:State, b:State):Bool;
 }
 
-enum abstract ClientStatus(Int) {
-  var UNKNOWN = 0;
-  var READY = 10;
-  var PLAYING = 20;
-  var GOAL = 30;
+@:enum
+abstract ClientStatus(Int) {
+	var UNKNOWN = 0;
+	var READY = 10;
+	var PLAYING = 20;
+	var GOAL = 30;
 }
 
 enum RenderFormat {
-  TEXT;
-  HTML;
-  ANSI;
+	TEXT;
+	HTML;
+	ANSI;
 }
 
-enum abstract ItemFlags(Int) from Int to Int {
-  var FLAG_NONE = 0;
-  var FLAG_ADVANCEMENT = 1 << 0;
-  var FLAG_NEVER_EXCLUDE = 1 << 1;
-  var FLAG_TRAP = 1 << 2;
-}
-
-typedef NetworkItem = {
-  var item:Int64;
-  var location:Int64;
-  var player:Int;
-  var flags:ItemFlags;
-  var index:Int;
-}
-
-typedef NetworkPlayer = {
-  var team:Int;
-  var slot:Int;
-  var alias:String;
-  var name:String;
-}
-
-typedef TextNode = {
-  @:optional
-  var type:String;
-  @:optional
-  var color:String;
-  @:optional
-  var text:String;
-  @:optional
-  var found:Bool;
-  @:optional
-  var flags:ItemFlags;
-}
-
-typedef Version = {
-  var major:Int;
-  var minor:Int;
-  var build:Int;
-}

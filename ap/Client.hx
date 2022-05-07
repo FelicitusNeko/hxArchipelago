@@ -1,22 +1,20 @@
 package ap;
 
 import ap.Definitions;
-import haxe.exceptions.NotImplementedException;
+import ap.PacketTypes;
 import haxe.Int64;
+import haxe.Json;
+import haxe.Log;
 import haxe.Timer;
-import hx.ws.WebSocket;
+import haxe.exceptions.NotImplementedException;
 import helder.Set;
+import hx.ws.Types.MessageType;
+import hx.ws.WebSocket;
 import sys.thread.Mutex;
 
 using StringTools;
 
 class Client {
-	public static final defaultVersion:Version = {
-		major: 0,
-		minor: 3,
-		build: 1
-	};
-
 	private var _uri:String;
 	private var _game:String;
 	private var _uuid:String;
@@ -33,12 +31,12 @@ class Client {
 	private var _hOnLocationInfo:List<NetworkItem>->Void = null;
 	private var _hOnDataPackageChanged:Dynamic->Void = null;
 	private var _hOnPrint:String->Void = null;
-	private var _hOnPrintJson:(List<TextNode>, NetworkItem, Int) -> Void = null;
+	private var _hOnPrintJson:(Array<JSONMessagePart>) -> Void = null;
 	private var _hOnBounced:Dynamic->Void = null;
 	private var _hOnLocationChecked:List<Int64>->Void = null;
 
-	private var _lastSocketConnect:Int64;
-	private var _socketReconnectInterval:Int64 = 1500;
+	private var _lastSocketConnect:Float;
+	private var _socketReconnectInterval:Float = 1.5;
 	private var _checkQueue:Set<Int64>;
 	private var _scoutQueue:Set<Int64>;
 	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
@@ -46,14 +44,15 @@ class Client {
 	private var _slot:String;
 	private var _team:Int = -1;
 	private var _slotnr:Int = -1;
-	private var _players:List<NetworkPlayer> = [];
-	private var _locations:Map<Int64, String> = {};
-	private var _items:Map<Int64, String> = {};
+	private var _players:List<NetworkPlayer>;
+	private var _locations:Map<Int64, String>;
+	private var _items:Map<Int64, String>;
 	private var _dataPackageValid:Bool = false;
-	private var _dataPackage:Dynamic;
-	private var _serverConnectTime:Double;
+	private var _dataPackage:DataPackageObject;
+	private var _serverConnectTime:Float;
+	private var _localConnectTime:Float;
 
-	private var _msgQueue:List<String> = [];
+	private var _msgQueue:List<String>;
 	private var _msgMutex:Mutex;
 
 	public var state(get, never):State;
@@ -61,13 +60,17 @@ class Client {
 	public var slot(get, never):String;
 	public var player_number(get, never):Int;
 	public var is_data_package_valid(get, never):Bool;
-	public var server_time(get, never):Double;
+	public var server_time(get, never):Float;
 
 	// [private] std::chrono::steady_clock::time_point _localConnectTime;
 
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
-		_checkQueue = new Set();
-		_scoutQueue = new Set();
+		_players = new List<NetworkPlayer>();
+		_locations = new Map<Int64, String>();
+		_items = new Map<Int64, String>();
+		_checkQueue = new Set<Int64>();
+		_scoutQueue = new Set<Int64>();
+		_msgQueue = new List<String>();
 		_msgMutex = new Mutex();
 
 		if (uri.length > 0) {
@@ -90,7 +93,7 @@ class Client {
 
 		_uuid = uuid;
 		_game = game;
-		_dataPackage = {version: 1, games: {}};
+		_dataPackage = {version: 1, games: new Map<String, GameData>()};
 		connect_socket();
 	}
 
@@ -130,11 +133,11 @@ class Client {
 		_hOnDataPackageChanged = f;
 	}
 
-	public function set_print_handler(f:List<String>->Void) {
+	public function set_print_handler(f:String->Void) {
 		_hOnPrint = f;
 	}
 
-	public function set_print_json_handler(f:(List<TextNode>, NetworkItem, Int) -> Void) {
+	public function set_print_json_handler(f:(Array<JSONMessagePart>) -> Void) {
 		_hOnPrintJson = f;
 	}
 
@@ -170,18 +173,18 @@ class Client {
 
 	public function get_location_name(code:Int64):String {
 		if (_locations.exists(code))
-			return _locations.value(code);
+			return _locations.get(code);
 		return "Unknown";
 	}
 
 	public function get_item_name(code:Int64):String {
 		if (_items.exists(code))
-			return _items.value(code);
+			return _items.get(code);
 		return "Unknown";
 	}
 
-	public function render_json(msg:List<TextNode>, fmt:RenderFormat = RenderFormat.TEXT) {
-		if (fmt == RenderFormat.HTML) 
+	public function render_json(msg:Array<JSONMessagePart>, fmt:RenderFormat = RenderFormat.TEXT) {
+		if (fmt == RenderFormat.HTML)
 			throw new NotImplementedException("ap.Client.render_json(..., HTML) not yet implemented [upstream]");
 		else {
 			// TODO: this is a stub
@@ -232,7 +235,16 @@ class Client {
 		return false;
 	}
 
-	public function ConnectSlot(name:String, password:String, items_handling:Int, tags:List<String> = [], ver:Version = defaultVersion):Bool {
+	public function ConnectSlot(name:String, password:String, items_handling:Int, ?tags:List<String>, ?ver:Version):Bool {
+		if (tags == null)
+			tags = new List<String>();
+		if (ver == null)
+			ver = {
+				major: 0,
+				minor: 3,
+				build: 1
+			};
+
 		if (_state < State.SOCKET_CONNECTED)
 			return false;
 		_slot = name;
@@ -249,10 +261,10 @@ class Client {
 		});
 	}
 
-	public function ConnectUpdate(items_handling:?Int, tags:?List<String>):Bool {
+	public function ConnectUpdate(?items_handling:Int, ?tags:List<String>):Bool {
 		if (items_handling == null && tags == null)
 			return false;
-		var packet = {
+		var packet:Dynamic = {
 			cmd: "ConnectUpdate"
 		};
 		if (items_handling != null)
@@ -271,7 +283,7 @@ class Client {
 		});
 	}
 
-	public function GetDataPackage(exclude:List<String> = []):Bool {
+	public function GetDataPackage(exclude:List<String>):Bool {
 		if (_state < State.SLOT_CONNECTED)
 			return false;
 		return InternalSend({
@@ -280,10 +292,10 @@ class Client {
 		});
 	}
 
-	public function Bounce(data:Dynamic, games:?List<String>, slots:?List<Int>, tags:?List<String>):Bool {
+	public function Bounce(data:Dynamic, games:List<String>, slots:List<Int>, tags:List<String>):Bool {
 		if (_state < State.ROOM_INFO)
 			return false;
-		var packet = {
+		var packet:Dynamic = {
 			cmd: "Bounce",
 			data: data
 		};
@@ -327,19 +339,19 @@ class Client {
 		return _dataPackageValid;
 	}
 
-	public function get_server_time():Double {
+	public function get_server_time():Float {
 		return _serverConnectTime + (Timer.stamp() - _localConnectTime);
 	}
 
 	public function poll() {
-		if (_ws && _state == State.DISCONNECTED) {
+		if (_ws != null && _state == State.DISCONNECTED) {
 			_ws.close();
 			_ws = null;
 		}
-		if (_ws)
+		if (_ws != null)
 			process_queue();
 		if (_state < State.SOCKET_CONNECTED) {
-			var t = time();
+			var t = Sys.time();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
 				if (_state != State.DISCONNECTED)
 					log("Connect timed out. Retrying.");
@@ -355,28 +367,29 @@ class Client {
 		if (_msgQueue.length > 0)
 			try {
 				for (msg in _msgQueue) {
-					var packet = Json.parse(msg);
+					var packet:List<Packet> = Json.parse(msg);
 					for (command in packet) {
 						switch (command.cmd) {
 							case "RoomInfo":
 								{
+									cast(command, RoomInfoPacket);
 									_localConnectTime = Timer.stamp();
 									_serverConnectTime = command.time;
 									_seed = command.seed_name;
 									if (_state < State.ROOM_INFO)
 										_state = State.ROOM_INFO;
-									if (_hOnRoomInfo)
+									if (_hOnRoomInfo != null)
 										_hOnRoomInfo();
 
 									_dataPackageValid = true;
-									var exclude:List<String> = [];
+									var exclude:List<String> = new List<String>();
 									for (game => ver in command.datapackage_versions) {
 										try {
 											if (ver < 1) {
 												_dataPackageValid = false;
 												continue;
 											}
-											if (!_dataPackage.games[game]) {
+											if (_dataPackage.games[game] == null) {
 												_dataPackageValid = false;
 												continue;
 											}
@@ -396,9 +409,11 @@ class Client {
 										debug("DataPackage up to date");
 								}
 
-							case "ConnectionRefused":
-								if (_hOnSlotRefused)
-									_hOnSlotRefused(command.errors);
+							case "ConnectionRefused":{
+								var refusedPacket:ConnectionRefusedPacket = command;
+								if (_hOnSlotRefused != null)
+									_hOnSlotRefused(refusedPacket.errors);
+							}
 
 							case "Connected":
 								_state = State.SLOT_CONNECTED;
@@ -412,49 +427,50 @@ class Client {
 										alias: player.alias,
 										name: player.name
 									});
-								if (_hOnSlotConnected)
+								if (_hOnSlotConnected != null)
 									_hOnSlotConnected(command.slot_data);
 								// TODO: [upstream] store checked/missing locations
-								if (_hOnLocationChecked)
+								if (_hOnLocationChecked != null)
 									_hOnLocationChecked(command.checked_locations);
 
 							case "ReceivedItems":
 								{
-									var items:List<NetworkItem> = [];
-									var index:Int64 = command.index;
+									var items:List<NetworkItem> = new List<NetworkItem>();
+									var index:Int = command.index;
 									for (item in command.items)
+										items.add({
+											item: item.item,
+											location: item.location,
+											player: item.player,
+											flags: item.flags,
+											index: index++
+										});
+									if (_hOnItemsReceived != null)
+										_hOnItemsReceived(items);
+								}
+
+							case "LocationInfo":
+								{
+									var items:List<NetworkItem> = new List<NetworkItem>();
+									var index:Int = command.index;
+									for (item in command.locations)
 										items.add({
 											item: item.item,
 											location: item.location,
 											player: item.player,
 											index: index++
 										});
-									if (_hOnItemsReceived)
-										_hOnItemsReceived(items);
-								}
-
-							case "LocationInfo":
-								{
-									var items:List<NetworkItem> = [];
-									var index:Int64 = command.index;
-									for (item in command.locations)
-										locations.add({
-											item: item.item,
-											location: item.location,
-											player: item.player,
-											index: index++
-										});
-									if (_hOnLocationInfo)
+									if (_hOnLocationInfo != null)
 										_hOnLocationInfo(items);
 								}
 
 							case "RoomUpdate":
 								// TODO: [upstream] store checked/missing locations
-								if (_hOnLocationChecked)
+								if (_hOnLocationChecked != null)
 									_hOnLocationChecked(command.checked_locations);
 
 							case "DataPackage":
-								var data = _dataPackage;
+								var data:Dynamic = _dataPackage;
 								if (!data.games)
 									data.games = {};
 								for (game => gameData in command.data.games)
@@ -463,30 +479,21 @@ class Client {
 								_dataPackageValid = false;
 								set_data_package(data);
 								_dataPackageValid = true;
-								if (_hOnDataPackageChanged)
+								if (_hOnDataPackageChanged != null)
 									_hOnDataPackageChanged(_dataPackage);
 
 							case "Print":
-								if (_hOnPrint)
+								if (_hOnPrint != null)
 									_hOnPrint(command.text);
 
 							case "PrintJSON":
-								if (_hOnPrintJson) {
-									var msg:List<TextNode> = [];
-									// NOTE: very experimental
-									for (part in command.data)
-										msg.add({
-											type: part.type,
-											color: part.color,
-											text: part.text,
-											found: part.found,
-											flags: part.flags
-										});
-									_hOnPrintJson(msg);
+								if (_hOnPrintJson != null) {
+									var jsonCommand: PrintJsonPacket = command;
+									_hOnPrintJson(jsonCommand.data);
 								}
 
 							case "Bounced":
-								if (_hOnBounced)
+								if (_hOnBounced != null)
 									_hOnBounced(command);
 
 							case _:
@@ -502,7 +509,7 @@ class Client {
 	}
 
 	public function reset() {
-		if (_ws)
+		if (_ws != null)
 			_ws.close();
 		_ws = null;
 		_checkQueue.clear();
@@ -529,7 +536,7 @@ class Client {
 		debug("onopen()");
 		log("Server connected");
 		_state = State.SOCKET_CONNECTED;
-		if (_hOnSocketConnected)
+		if (_hOnSocketConnected != null)
 			_hOnSocketConnected();
 		_socketReconnectInterval = 1500;
 	}
@@ -539,25 +546,29 @@ class Client {
 		if (_state > State.SOCKET_CONNECTING) {
 			log("Server disconnected");
 			_state = State.DISCONNECTED;
-			if (_hOnSocketDisconnected)
+			if (_hOnSocketDisconnected != null)
 				_hOnSocketDisconnected();
 		}
 		_state = State.DISCONNECTED;
 		_seed = "";
 	}
 
-	private function onmessage(s:String) {
-		_msgMutex.acquire();
-		_msgQueue.add(s);
-		_msgMutex.release();
+	private function onmessage(msg:MessageType) {
+		switch (msg) {
+			case StrMessage(content):
+				_msgMutex.acquire();
+				_msgQueue.add(content);
+				_msgMutex.release();
+			case _:
+		}
 	}
 
-	private function onerror() {
+	private function onerror(e:Dynamic) {
 		debug("onerror()");
 	}
 
 	private function connect_socket() {
-		if (_ws)
+		if (_ws != null)
 			_ws.close();
 		if (_uri.length == 0) {
 			_ws = null;
@@ -571,8 +582,10 @@ class Client {
 		_ws.onmessage = onmessage;
 		_ws.onerror = onerror;
 
-		_lastSocketConnect = time();
-		_socketReconnectInterval *= Math.min(_socketReconnectInterval * 2, 15000);
+		_lastSocketConnect = Timer.stamp();
+		_socketReconnectInterval *= 2;
+		if (_socketReconnectInterval > 15000)
+			_socketReconnectInterval = 15000;
 	}
 
 	private function color2ansi(color:String):String {
@@ -599,6 +612,6 @@ class Client {
 	}
 
 	private function deansify(text:String):String {
-		return replace(text, '\x1b', " ");
+		return StringTools.replace(text, '\x1b', " ");
 	}
 }
