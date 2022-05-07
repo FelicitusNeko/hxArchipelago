@@ -6,7 +6,7 @@ This is a port of [apclientpp](https://github.com/black-sliver/apclientpp) by Bl
 
 ## How to use
 
-Just install the package via `haxelib`, then `import ap.Client` into your project, and you should be good to go.
+Just install the package via `haxelib`, then `import ap.Client` into your project, and you should be good to go. This project aims to be as functionally identical to apclientpp as possible.
 
 ### Warning
 
