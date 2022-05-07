@@ -1,0 +1,13 @@
+# hxArchipelago
+
+Haxe Archipelago multiworld randomizer client library. See [archipelago.gg](https://archipelago.gg).
+
+This is a port of [apclientpp](https://github.com/black-sliver/apclientpp) by Black-Sliver.
+
+## How to use
+
+Just install the package via `haxelib`, then `import ap.Client` into your project, and you should be good to go.
+
+### Warning
+
+This package is currently untested. Use at your own risk.
