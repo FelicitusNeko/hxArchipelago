@@ -12,6 +12,7 @@ import hx.ws.Types.MessageType;
 import hx.ws.WebSocket;
 import sys.thread.Mutex;
 
+using ap.Bitsets;
 using StringTools;
 
 class Client {
@@ -186,10 +187,57 @@ class Client {
 	public function render_json(msg:Array<JSONMessagePart>, fmt:RenderFormat = RenderFormat.TEXT) {
 		if (fmt == RenderFormat.HTML)
 			throw new NotImplementedException("ap.Client.render_json(..., HTML) not yet implemented [upstream]");
-		else {
-			// TODO: this is a stub
-			return "NYI";
+
+		var out:String = "";
+		var colorIsSet:Bool = false;
+		for (node in msg) {
+			var color:String;
+			var text:String;
+			if (fmt != RenderFormat.TEXT)
+				color = node.color;
+			var id:Null<Int> = Std.parseInt(node.text);
+			if (id == null)
+				id = 0;
+			switch (node.type) {
+				case JTYPE_PLAYER_ID:
+					if (color == null)
+						color = id == _slotnr ? "magenta" : "yellow";
+					text = get_player_alias(id);
+				case JTYPE_ITEM_ID:
+					if (color == null) {
+						if (node.found)
+							color = "green";
+						else if (node.flags.contains(FLAG_ADVANCEMENT))
+							color = "plum";
+						else if (node.flags.contains(FLAG_NEVER_EXCLUDE))
+							color = "slateblue";
+						else if (node.flags.contains(FLAG_TRAP))
+							color = "salmon";
+						else
+							color = "cyan";
+					}
+					text = get_item_name(id);
+				case JTYPE_LOCATION_ID:
+					if (color == null)
+						color = "blue";
+					text = get_location_name(id);
+				case _:
+					text = node.text;
+			}
+			if (fmt == RenderFormat.ANSI) {
+				if (color == null && colorIsSet) {
+					out += color2ansi("");
+					colorIsSet = false;
+				}
+				else if (color != null) {
+					out += color2ansi(color);
+					colorIsSet = true;
+				}
+				out += deansify(text);
+			} else out += text;
 		}
+		if (fmt == RenderFormat.ANSI && colorIsSet) out += color2ansi("");
+		return out;
 	}
 
 	private inline function InternalSend(packet:Dynamic):Bool {
@@ -431,7 +479,8 @@ class Client {
 						case ReceivedItems(p):
 							{
 								var index:Int = p.index;
-								for (item in p.items) item.index = index++;
+								for (item in p.items)
+									item.index = index++;
 								if (_hOnItemsReceived != null)
 									_hOnItemsReceived(p.items);
 							}
