@@ -25,15 +25,15 @@ class Client {
 	private var _hOnSocketDisconnected:Void->Void = null;
 	private var _hOnSlotConnected:Dynamic->Void = null;
 	private var _hOnSlotDisconnected:Void->Void = null;
-	private var _hOnSlotRefused:List<String>->Void = null;
+	private var _hOnSlotRefused:Array<String>->Void = null;
 	private var _hOnRoomInfo:Void->Void = null;
-	private var _hOnItemsReceived:List<NetworkItem>->Void = null;
-	private var _hOnLocationInfo:List<NetworkItem>->Void = null;
+	private var _hOnItemsReceived:Array<NetworkItem>->Void = null;
+	private var _hOnLocationInfo:Array<NetworkItem>->Void = null;
 	private var _hOnDataPackageChanged:Dynamic->Void = null;
 	private var _hOnPrint:String->Void = null;
 	private var _hOnPrintJson:(Array<JSONMessagePart>) -> Void = null;
 	private var _hOnBounced:Dynamic->Void = null;
-	private var _hOnLocationChecked:List<Int64>->Void = null;
+	private var _hOnLocationChecked:Array<Int64>->Void = null;
 
 	private var _lastSocketConnect:Float;
 	private var _socketReconnectInterval:Float = 1.5;
@@ -44,7 +44,7 @@ class Client {
 	private var _slot:String;
 	private var _team:Int = -1;
 	private var _slotnr:Int = -1;
-	private var _players:List<NetworkPlayer>;
+	private var _players:Array<NetworkPlayer>;
 	private var _locations:Map<Int64, String>;
 	private var _items:Map<Int64, String>;
 	private var _dataPackageValid:Bool = false;
@@ -52,7 +52,7 @@ class Client {
 	private var _serverConnectTime:Float;
 	private var _localConnectTime:Float;
 
-	private var _msgQueue:List<String>;
+	private var _packetQueue:Array<PacketType>;
 	private var _msgMutex:Mutex;
 
 	public var state(get, never):State;
@@ -65,12 +65,12 @@ class Client {
 	// [private] std::chrono::steady_clock::time_point _localConnectTime;
 
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
-		_players = new List<NetworkPlayer>();
-		_locations = new Map<Int64, String>();
-		_items = new Map<Int64, String>();
+		_players = [];
+		_locations = [];
+		_items = [];
 		_checkQueue = new Set<Int64>();
 		_scoutQueue = new Set<Int64>();
-		_msgQueue = new List<String>();
+		_packetQueue = [];
 		_msgMutex = new Mutex();
 
 		if (uri.length > 0) {
@@ -109,7 +109,7 @@ class Client {
 		_hOnSlotConnected = f;
 	}
 
-	public function set_slot_refused_handler(f:List<String>->Void) {
+	public function set_slot_refused_handler(f:Array<String>->Void) {
 		_hOnSlotRefused = f;
 	}
 
@@ -121,11 +121,11 @@ class Client {
 		_hOnRoomInfo = f;
 	}
 
-	public function set_items_received_handler(f:List<NetworkItem>->Void) {
+	public function set_items_received_handler(f:Array<NetworkItem>->Void) {
 		_hOnItemsReceived = f;
 	}
 
-	public function set_location_info_handler(f:List<NetworkItem>->Void) {
+	public function set_location_info_handler(f:Array<NetworkItem>->Void) {
 		_hOnLocationInfo = f;
 	}
 
@@ -145,7 +145,7 @@ class Client {
 		_hOnBounced = f;
 	}
 
-	public function set_location_checked_handler(f:List<Int64>->Void) {
+	public function set_location_checked_handler(f:Array<Int64>->Void) {
 		_hOnLocationChecked = f;
 	}
 
@@ -198,7 +198,7 @@ class Client {
 		return true;
 	}
 
-	public function LocationChecks(locations:List<Int64>):Bool {
+	public function LocationChecks(locations:Array<Int64>):Bool {
 		if (_state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationChecks",
@@ -211,7 +211,7 @@ class Client {
 		return true;
 	}
 
-	public function LocationScouts(locations:List<Int64>):Bool {
+	public function LocationScouts(locations:Array<Int64>):Bool {
 		if (_state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationScouts",
@@ -235,9 +235,9 @@ class Client {
 		return false;
 	}
 
-	public function ConnectSlot(name:String, password:String, items_handling:Int, ?tags:List<String>, ?ver:Version):Bool {
+	public function ConnectSlot(name:String, password:String, items_handling:Int, ?tags:Array<String>, ?ver:Version):Bool {
 		if (tags == null)
-			tags = new List<String>();
+			tags = [];
 		if (ver == null)
 			ver = {
 				major: 0,
@@ -261,7 +261,7 @@ class Client {
 		});
 	}
 
-	public function ConnectUpdate(?items_handling:Int, ?tags:List<String>):Bool {
+	public function ConnectUpdate(?items_handling:Int, ?tags:Array<String>):Bool {
 		if (items_handling == null && tags == null)
 			return false;
 		var packet:Dynamic = {
@@ -283,7 +283,7 @@ class Client {
 		});
 	}
 
-	public function GetDataPackage(exclude:List<String>):Bool {
+	public function GetDataPackage(exclude:Array<String>):Bool {
 		if (_state < State.SLOT_CONNECTED)
 			return false;
 		return InternalSend({
@@ -292,7 +292,7 @@ class Client {
 		});
 	}
 
-	public function Bounce(data:Dynamic, games:List<String>, slots:List<Int>, tags:List<String>):Bool {
+	public function Bounce(data:Dynamic, games:Array<String>, slots:Array<Int>, tags:Array<String>):Bool {
 		if (_state < State.ROOM_INFO)
 			return false;
 		var packet:Dynamic = {
@@ -364,144 +364,119 @@ class Client {
 
 	public function process_queue() {
 		_msgMutex.acquire();
-		if (_msgQueue.length > 0)
+		if (_packetQueue.length > 0)
 			try {
-				for (msg in _msgQueue) {
-					var packet:List<Packet> = Json.parse(msg);
-					for (command in packet) {
-						switch (command.cmd) {
-							case "RoomInfo":
-								{
-									cast(command, RoomInfoPacket);
-									_localConnectTime = Timer.stamp();
-									_serverConnectTime = command.time;
-									_seed = command.seed_name;
-									if (_state < State.ROOM_INFO)
-										_state = State.ROOM_INFO;
-									if (_hOnRoomInfo != null)
-										_hOnRoomInfo();
+				for (packet in _packetQueue) {
+					switch (packet) {
+						case RoomInfo(p):
+							{
+								_localConnectTime = Timer.stamp();
+								_serverConnectTime = p.time;
+								_seed = p.seed_name;
+								if (_state < State.ROOM_INFO)
+									_state = State.ROOM_INFO;
+								if (_hOnRoomInfo != null)
+									_hOnRoomInfo();
 
-									_dataPackageValid = true;
-									var exclude:List<String> = new List<String>();
-									for (game => ver in command.datapackage_versions) {
-										try {
-											if (ver < 1) {
-												_dataPackageValid = false;
-												continue;
-											}
-											if (_dataPackage.games[game] == null) {
-												_dataPackageValid = false;
-												continue;
-											}
-											if (_dataPackage.games[game].version != ver) {
-												_dataPackageValid = false;
-												continue;
-											}
-											exclude.add(game);
-										} catch (e) {
-											trace(e.message);
+								_dataPackageValid = true;
+								var exclude:Array<String> = [];
+								for (game => ver in p.datapackage_versions) {
+									try {
+										if (ver < 1) {
 											_dataPackageValid = false;
+											continue;
 										}
+										if (_dataPackage.games[game] == null) {
+											_dataPackageValid = false;
+											continue;
+										}
+										if (_dataPackage.games[game].version != ver) {
+											_dataPackageValid = false;
+											continue;
+										}
+										exclude.push(game);
+									} catch (e) {
+										trace(e.message);
+										_dataPackageValid = false;
 									}
-									if (!_dataPackageValid)
-										GetDataPackage(exclude);
-									else
-										debug("DataPackage up to date");
 								}
-
-							case "ConnectionRefused":{
-								var refusedPacket:ConnectionRefusedPacket = command;
-								if (_hOnSlotRefused != null)
-									_hOnSlotRefused(refusedPacket.errors);
+								if (!_dataPackageValid)
+									GetDataPackage(exclude);
+								else
+									debug("DataPackage up to date");
 							}
 
-							case "Connected":
-								_state = State.SLOT_CONNECTED;
-								_team = command.team;
-								_slotnr = command.slot;
-								_players.clear();
-								for (player in command.players)
-									_players.add({
-										team: player.team,
-										slot: player.slot,
-										alias: player.alias,
-										name: player.name
-									});
-								if (_hOnSlotConnected != null)
-									_hOnSlotConnected(command.slot_data);
-								// TODO: [upstream] store checked/missing locations
-								if (_hOnLocationChecked != null)
-									_hOnLocationChecked(command.checked_locations);
+						case ConnectionRefused(p):
+							if (_hOnSlotRefused != null)
+								_hOnSlotRefused(p.errors);
 
-							case "ReceivedItems":
-								{
-									var items:List<NetworkItem> = new List<NetworkItem>();
-									var index:Int = command.index;
-									for (item in command.items)
-										items.add({
-											item: item.item,
-											location: item.location,
-											player: item.player,
-											flags: item.flags,
-											index: index++
-										});
-									if (_hOnItemsReceived != null)
-										_hOnItemsReceived(items);
-								}
+						case Connected(p):
+							_state = State.SLOT_CONNECTED;
+							_team = p.team;
+							_slotnr = p.slot;
+							_players = [];
+							for (player in p.players)
+								_players.push({
+									team: player.team,
+									slot: player.slot,
+									alias: player.alias,
+									name: player.name
+								});
+							if (_hOnSlotConnected != null)
+								_hOnSlotConnected(p.slot_data);
+							// TODO: [upstream] store checked/missing locations
+							if (_hOnLocationChecked != null)
+								_hOnLocationChecked(p.checked_locations);
 
-							case "LocationInfo":
-								{
-									var items:List<NetworkItem> = new List<NetworkItem>();
-									var index:Int = command.index;
-									for (item in command.locations)
-										items.add({
-											item: item.item,
-											location: item.location,
-											player: item.player,
-											index: index++
-										});
-									if (_hOnLocationInfo != null)
-										_hOnLocationInfo(items);
-								}
+						case ReceivedItems(p):
+							{
+								var index:Int = p.index;
+								for (item in p.items) item.index = index++;
+								if (_hOnItemsReceived != null)
+									_hOnItemsReceived(p.items);
+							}
 
-							case "RoomUpdate":
-								// TODO: [upstream] store checked/missing locations
-								if (_hOnLocationChecked != null)
-									_hOnLocationChecked(command.checked_locations);
+						case LocationInfo(p):
+							{
+								if (_hOnLocationInfo != null)
+									_hOnLocationInfo(p.locations);
+							}
 
-							case "DataPackage":
-								var data:Dynamic = _dataPackage;
-								if (!data.games)
-									data.games = {};
-								for (game => gameData in command.data.games)
-									data.games[game] = gameData;
-								data.version = command.data.version;
-								_dataPackageValid = false;
-								set_data_package(data);
-								_dataPackageValid = true;
-								if (_hOnDataPackageChanged != null)
-									_hOnDataPackageChanged(_dataPackage);
+						case RoomUpdate(p):
+							// TODO: [upstream] store checked/missing locations
+							if (_hOnLocationChecked != null)
+								_hOnLocationChecked(p.checked_locations);
 
-							case "Print":
-								if (_hOnPrint != null)
-									_hOnPrint(command.text);
+						case DataPackage(p):
+							var data = _dataPackage;
+							if (data.games == null)
+								data.games = [];
+							for (game => gameData in p.data.games)
+								data.games[game] = gameData;
+							data.version = p.data.version;
+							_dataPackageValid = false;
+							set_data_package(data);
+							_dataPackageValid = true;
+							if (_hOnDataPackageChanged != null)
+								_hOnDataPackageChanged(_dataPackage);
 
-							case "PrintJSON":
-								if (_hOnPrintJson != null) {
-									var jsonCommand: PrintJsonPacket = command;
-									_hOnPrintJson(jsonCommand.data);
-								}
+						case Print(p):
+							if (_hOnPrint != null)
+								_hOnPrint(p.text);
 
-							case "Bounced":
-								if (_hOnBounced != null)
-									_hOnBounced(command);
+						case PrintJSON(p):
+							if (_hOnPrintJson != null)
+								_hOnPrintJson(p.data);
 
-							case _:
-								debug("unhandled cmd");
-						}
+						case Bounced(p):
+							if (_hOnBounced != null)
+								_hOnBounced(p.data);
+
+						case _:
+							debug("unhandled cmd");
 					}
 				}
-				_msgQueue.clear();
+				_packetQueue = [];
 			} catch (e) {
 				trace(e.message);
 			}
@@ -518,7 +493,7 @@ class Client {
 		_slot = "";
 		_team = -1;
 		_slotnr = -1;
-		_players.clear();
+		_players = [];
 		_clientStatus = ClientStatus.UNKNOWN;
 	}
 
@@ -556,9 +531,43 @@ class Client {
 	private function onmessage(msg:MessageType) {
 		switch (msg) {
 			case StrMessage(content):
-				_msgMutex.acquire();
-				_msgQueue.add(content);
-				_msgMutex.release();
+				{
+					var packets:Array<Dynamic> = Json.parse(content);
+					_msgMutex.acquire();
+					for (p in packets) {
+						switch (p.cmd) {
+							case "RoomInfo":
+								_packetQueue.push(RoomInfo(p));
+							case "ConnectionRefused":
+								_packetQueue.push(ConnectionRefused(p));
+							case "Connected":
+								_packetQueue.push(Connected(p));
+							case "ReceivedItems":
+								_packetQueue.push(ReceivedItems(p));
+							case "LocationInfo":
+								_packetQueue.push(LocationInfo(p));
+							case "RoomUpdate":
+								_packetQueue.push(RoomUpdate(p));
+							case "Print":
+								_packetQueue.push(Print(p));
+							case "PrintJSON":
+								_packetQueue.push(PrintJSON(p));
+							case "DataPackage":
+								_packetQueue.push(DataPackage(p));
+							case "Bounced":
+								_packetQueue.push(Bounced(p));
+							case "InvalidPacket":
+								trace("InvalidPacket received:" + Json.stringify(p));
+							case "Retrieved":
+								_packetQueue.push(Retrieved(p));
+							case "SetReply":
+								_packetQueue.push(SetReply(p));
+							case _:
+								trace("Unrecognized packet type " + p.cmd);
+						}
+					}
+					_msgMutex.release();
+				}
 			case _:
 		}
 	}

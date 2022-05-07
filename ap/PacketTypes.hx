@@ -87,16 +87,12 @@ typedef NetworkSlot = {
   var ?group_members:Array<Int>;
 }
 
-@:publicFields
-class Packet {
-  var cmd:String;
+typedef Packet = {
+	var cmd:String;
 }
 
-// typedef Packet = {
-// 	var cmd:String;
-// }
-
-class RoomInfoPacket extends Packet {
+typedef RoomInfoPacket = {
+	var cmd:String;
 	var tags:Array<String>;
 	var password:Bool;
 	var permissions:Map<String, Permission>;
@@ -141,8 +137,8 @@ typedef RoomUpdatePacket = {
   var cmd:String;
   var hint_points:Int;
   var players:Array<NetworkPlayer>;
-  var checked_locations:Array<Int>;
-  var missing_locations:Array<Int>;
+  var checked_locations:Array<Int64>;
+  var missing_locations:Array<Int64>;
 }
 
 typedef PrintPacket = {
@@ -153,11 +149,49 @@ typedef PrintPacket = {
 typedef PrintJsonPacket = {
 	var cmd:String;
   var data:Array<JSONMessagePart>;
+  var receiving:Int;
+  var item:NetworkItem;
+  var found:Bool;
+}
 
+typedef DataPackagePacket = {
+  var data:DataPackageObject;
+}
+
+typedef BouncedPacket = {
+  var games:Array<String>;
+  var slots:Array<Int>;
+  var tags:Array<String>;
+  var data:Dynamic;
+}
+
+typedef RetrievedPacket = {
+  var keys:Map<String, Dynamic>;
+}
+
+typedef SetReplyPacket = {
+  var key:String;
+  var value:Dynamic;
+  var original_value:Dynamic;
 }
 
 typedef DeathLink = {
 	var time:Float;
 	var cause:String;
 	var source:String;
+}
+
+enum PacketType {
+  RoomInfo(p:RoomInfoPacket);
+  ConnectionRefused(p:ConnectionRefusedPacket);
+  Connected(p:ConnectedPacket);
+  ReceivedItems(p:ReceivedItemsPacket);
+  LocationInfo(p:LocationInfoPacket);
+  RoomUpdate(p:RoomUpdatePacket);
+  Print(p:PrintPacket);
+  PrintJSON(p:PrintJsonPacket);
+  DataPackage(p:DataPackagePacket);
+  Bounced(p:BouncedPacket);
+  Retrieved(p:RetrievedPacket);
+  SetReply(p:SetReplyPacket);
 }
