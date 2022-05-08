@@ -4,7 +4,6 @@ import ap.Definitions;
 import ap.PacketTypes;
 import haxe.Int64;
 import haxe.Json;
-import haxe.Log;
 import haxe.Timer;
 import haxe.exceptions.NotImplementedException;
 import helder.Set;
@@ -66,6 +65,9 @@ class Client {
 	// [private] std::chrono::steady_clock::time_point _localConnectTime;
 
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
+		#if debug
+		trace("Creating new AP client to " + uri);
+		#end
 		_players = [];
 		_locations = [];
 		_items = [];
@@ -191,8 +193,8 @@ class Client {
 		var out:String = "";
 		var colorIsSet:Bool = false;
 		for (node in msg) {
-			var color:String;
-			var text:String;
+			var color:String = null;
+			var text:String = "";
 			if (fmt != RenderFormat.TEXT)
 				color = node.color;
 			var id:Null<Int> = Std.parseInt(node.text);
@@ -241,8 +243,10 @@ class Client {
 	}
 
 	private inline function InternalSend(packet:Dynamic):Bool {
-		debug("> " + packet.cmd + ": " + Json.stringify(packet));
-		_ws.send(Json.stringify(packet));
+		#if debug
+		trace("> " + packet.cmd + ": " + Json.stringify(packet));
+		#end
+		_ws.send(Json.stringify([packet]));
 		return true;
 	}
 
@@ -296,8 +300,10 @@ class Client {
 		if (_state < State.SOCKET_CONNECTED)
 			return false;
 		_slot = name;
-		debug("Connecting slot...");
-		return InternalSend({
+		#if debug
+		trace("Connecting slot...");
+		#end
+		var p:ConnectPacket = {
 			cmd: "Connect",
 			game: _game,
 			uuid: _uuid,
@@ -306,7 +312,8 @@ class Client {
 			version: ver,
 			items_handling: items_handling,
 			tags: tags
-		});
+		};
+		return InternalSend(p);
 	}
 
 	public function ConnectUpdate(?items_handling:Int, ?tags:Array<String>):Bool {
@@ -399,12 +406,12 @@ class Client {
 		if (_ws != null)
 			process_queue();
 		if (_state < State.SOCKET_CONNECTED) {
-			var t = Sys.time();
+			var t = Timer.stamp();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
 				if (_state != State.DISCONNECTED)
-					log("Connect timed out. Retrying.");
+					trace("Connect timed out. Retrying.");
 				else
-					log("Reconnecting to server");
+					trace("Reconnecting to server");
 				connect_socket();
 			}
 		}
@@ -413,11 +420,12 @@ class Client {
 	public function process_queue() {
 		_msgMutex.acquire();
 		if (_packetQueue.length > 0)
-			try {
+			// try {
 				for (packet in _packetQueue) {
 					switch (packet) {
 						case RoomInfo(p):
 							{
+								trace("RoomInfo:" + Json.stringify(p));
 								_localConnectTime = Timer.stamp();
 								_serverConnectTime = p.time;
 								_seed = p.seed_name;
@@ -428,6 +436,10 @@ class Client {
 
 								_dataPackageValid = true;
 								var exclude:Array<String> = [];
+								trace(p);
+								for (i in p.datapackage_versions) {
+									trace(i);
+								}
 								for (game => ver in p.datapackage_versions) {
 									try {
 										if (ver < 1) {
@@ -450,8 +462,10 @@ class Client {
 								}
 								if (!_dataPackageValid)
 									GetDataPackage(exclude);
+								#if debug
 								else
-									debug("DataPackage up to date");
+									trace("DataPackage up to date");
+								#end
 							}
 
 						case ConnectionRefused(p):
@@ -522,13 +536,23 @@ class Client {
 								_hOnBounced(p.data);
 
 						case _:
-							debug("unhandled cmd");
+							#if debug
+							trace("unhandled cmd");
+							#end
 					}
 				}
 				_packetQueue = [];
-			} catch (e) {
-				trace(e.message);
-			}
+			// } catch (e) {
+			// 	#if debug
+			// 	for (item in e.stack) {
+			// 		trace((item.getName()));
+			// 	}
+			// 	trace(e.details());
+			// 	throw e;
+			// 	#else
+			// 	trace(e.message);
+			// 	#end
+			// }
 		_msgMutex.release();
 	}
 
@@ -547,18 +571,20 @@ class Client {
 	}
 
 	private inline function log(msg:String) {
-		Log.trace(msg);
+		trace(msg);
 	}
 
 	private inline function debug(msg:String) {
 		#if debug
-		Log.trace(msg);
+		trace(msg);
 		#end
 	}
 
 	private function onopen() {
-		debug("onopen()");
-		log("Server connected");
+		#if debug
+		trace("onopen()");
+		#end
+		trace("Server connected");
 		_state = State.SOCKET_CONNECTED;
 		if (_hOnSocketConnected != null)
 			_hOnSocketConnected();
@@ -566,9 +592,11 @@ class Client {
 	}
 
 	private function onclose() {
-		debug("onclose()");
+		#if debug
+		trace("onclose()");
+		#end
 		if (_state > State.SOCKET_CONNECTING) {
-			log("Server disconnected");
+			trace("Server disconnected");
 			_state = State.DISCONNECTED;
 			if (_hOnSocketDisconnected != null)
 				_hOnSocketDisconnected();
@@ -578,12 +606,18 @@ class Client {
 	}
 
 	private function onmessage(msg:MessageType) {
+		#if debug
+		trace("onmessage()");
+		#end
 		switch (msg) {
 			case StrMessage(content):
 				{
 					var packets:Array<Dynamic> = Json.parse(content);
 					_msgMutex.acquire();
 					for (p in packets) {
+						#if debug
+						trace("Received packet " + p.cmd);
+						#end
 						switch (p.cmd) {
 							case "RoomInfo":
 								_packetQueue.push(RoomInfo(p));
@@ -622,7 +656,9 @@ class Client {
 	}
 
 	private function onerror(e:Dynamic) {
-		debug("onerror()");
+		#if debug
+		trace("onerror()");
+		#end
 	}
 
 	private function connect_socket() {
@@ -634,6 +670,9 @@ class Client {
 			return;
 		}
 		_state = State.SOCKET_CONNECTING;
+		#if debug
+		trace("Connecting to " + _uri);
+		#end
 		_ws = new WebSocket(_uri);
 		_ws.onopen = onopen;
 		_ws.onclose = onclose;

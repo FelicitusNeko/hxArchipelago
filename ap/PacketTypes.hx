@@ -91,6 +91,8 @@ typedef Packet = {
 	var cmd:String;
 }
 
+// Incoming packets
+
 typedef RoomInfoPacket = {
 	var cmd:String;
 	var tags:Array<String>;
@@ -155,10 +157,12 @@ typedef PrintJsonPacket = {
 }
 
 typedef DataPackagePacket = {
+	var cmd:String;
   var data:DataPackageObject;
 }
 
 typedef BouncedPacket = {
+	var cmd:String;
   var games:Array<String>;
   var slots:Array<Int>;
   var tags:Array<String>;
@@ -166,19 +170,15 @@ typedef BouncedPacket = {
 }
 
 typedef RetrievedPacket = {
+	var cmd:String;
   var keys:Map<String, Dynamic>;
 }
 
 typedef SetReplyPacket = {
+	var cmd:String;
   var key:String;
   var value:Dynamic;
   var original_value:Dynamic;
-}
-
-typedef DeathLink = {
-	var time:Float;
-	var cause:String;
-	var source:String;
 }
 
 enum PacketType {
@@ -195,3 +195,31 @@ enum PacketType {
   Retrieved(p:RetrievedPacket);
   SetReply(p:SetReplyPacket);
 }
+
+// Outgoing packets
+
+typedef ConnectPacket = {
+  var cmd:String;
+  var password:String;
+  var game:String;
+  var name:String;
+  var uuid:String;
+  var version:Version;
+  var items_handling:Int;
+  var tags:Array<String>;
+}
+
+typedef ConnectUpdatePacket = {
+  var cmd:String;
+  var ?items_handling:Int;
+  var ?tags:Array<String>;
+}
+
+// Bounce packets
+
+  typedef DeathLinkBouncePacket = {
+    var time:Float;
+    var cause:String;
+    var source:String;
+  }
+  
