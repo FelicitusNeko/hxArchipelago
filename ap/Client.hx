@@ -2,17 +2,17 @@ package ap;
 
 import ap.Definitions;
 import ap.PacketTypes;
-import haxe.Int64;
 import haxe.Json;
 import haxe.Timer;
 import haxe.exceptions.NotImplementedException;
 import helder.Set;
 import hx.ws.Types.MessageType;
 import hx.ws.WebSocket;
+import json2object.JsonParser;
 import sys.thread.Mutex;
 
-using ap.Bitsets;
 using StringTools;
+using ap.Bitsets;
 
 class Client {
 	private var _uri:String;
@@ -33,20 +33,20 @@ class Client {
 	private var _hOnPrint:String->Void = null;
 	private var _hOnPrintJson:(Array<JSONMessagePart>) -> Void = null;
 	private var _hOnBounced:Dynamic->Void = null;
-	private var _hOnLocationChecked:Array<Int64>->Void = null;
+	private var _hOnLocationChecked:Array<Int>->Void = null;
 
 	private var _lastSocketConnect:Float;
 	private var _socketReconnectInterval:Float = 1.5;
-	private var _checkQueue:Set<Int64>;
-	private var _scoutQueue:Set<Int64>;
+	private var _checkQueue:Set<Int>;
+	private var _scoutQueue:Set<Int>;
 	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
 	private var _seed:String;
 	private var _slot:String;
 	private var _team:Int = -1;
 	private var _slotnr:Int = -1;
 	private var _players:Array<NetworkPlayer>;
-	private var _locations:Map<Int64, String>;
-	private var _items:Map<Int64, String>;
+	private var _locations:Map<Int, String>;
+	private var _items:Map<Int, String>;
 	private var _dataPackageValid:Bool = false;
 	private var _dataPackage:DataPackageObject;
 	private var _serverConnectTime:Float;
@@ -71,8 +71,8 @@ class Client {
 		_players = [];
 		_locations = [];
 		_items = [];
-		_checkQueue = new Set<Int64>();
-		_scoutQueue = new Set<Int64>();
+		_checkQueue = new Set<Int>();
+		_scoutQueue = new Set<Int>();
 		_packetQueue = [];
 		_msgMutex = new Mutex();
 
@@ -148,7 +148,7 @@ class Client {
 		_hOnBounced = f;
 	}
 
-	public function set_location_checked_handler(f:Array<Int64>->Void) {
+	public function set_location_checked_handler(f:Array<Int>->Void) {
 		_hOnLocationChecked = f;
 	}
 
@@ -174,13 +174,13 @@ class Client {
 		return "Unknown";
 	}
 
-	public function get_location_name(code:Int64):String {
+	public function get_location_name(code:Int):String {
 		if (_locations.exists(code))
 			return _locations.get(code);
 		return "Unknown";
 	}
 
-	public function get_item_name(code:Int64):String {
+	public function get_item_name(code:Int):String {
 		if (_items.exists(code))
 			return _items.get(code);
 		return "Unknown";
@@ -250,7 +250,7 @@ class Client {
 		return true;
 	}
 
-	public function LocationChecks(locations:Array<Int64>):Bool {
+	public function LocationChecks(locations:Array<Int>):Bool {
 		if (_state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationChecks",
@@ -263,7 +263,7 @@ class Client {
 		return true;
 	}
 
-	public function LocationScouts(locations:Array<Int64>):Bool {
+	public function LocationScouts(locations:Array<Int>):Bool {
 		if (_state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationScouts",
@@ -287,15 +287,21 @@ class Client {
 		return false;
 	}
 
-	public function ConnectSlot(name:String, password:String, items_handling:Int, ?tags:Array<String>, ?ver:Version):Bool {
+	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:Version):Bool {
 		if (tags == null)
 			tags = [];
 		if (ver == null)
 			ver = {
 				major: 0,
 				minor: 3,
-				build: 1
+				build: 1,
 			};
+
+		var sendVer:Map<String, Dynamic> = [];
+		sendVer.set("major", ver.major);
+		sendVer.set("minor", ver.minor);
+		sendVer.set("build", ver.build);
+		sendVer.set("class", "Version");
 
 		if (_state < State.SOCKET_CONNECTED)
 			return false;
@@ -309,7 +315,7 @@ class Client {
 			uuid: _uuid,
 			name: name,
 			password: password,
-			version: ver,
+			version: sendVer,
 			items_handling: items_handling,
 			tags: tags
 		};
@@ -437,9 +443,6 @@ class Client {
 								_dataPackageValid = true;
 								var exclude:Array<String> = [];
 								trace(p);
-								for (i in p.datapackage_versions) {
-									trace(i);
-								}
 								for (game => ver in p.datapackage_versions) {
 									try {
 										if (ver < 1) {
@@ -618,31 +621,43 @@ class Client {
 						#if debug
 						trace("Received packet " + p.cmd);
 						#end
+						var pStr:String = Json.stringify(p);
 						switch (p.cmd) {
 							case "RoomInfo":
-								_packetQueue.push(RoomInfo(p));
+								_packetQueue.push(RoomInfo(new JsonParser<RoomInfoPacket>().fromJson(pStr)));
 							case "ConnectionRefused":
-								_packetQueue.push(ConnectionRefused(p));
+								_packetQueue.push(ConnectionRefused(new JsonParser<ConnectionRefusedPacket>().fromJson(pStr)));
 							case "Connected":
-								_packetQueue.push(Connected(p));
+								var pp = new JsonParser<ConnectedPacketND>().fromJson(pStr);
+								_packetQueue.push(Connected({
+									cmd: "Connected",
+									team: pp.team,
+									slot: pp.slot,
+									players: pp.players,
+									missing_locations: pp.missing_locations,
+									checked_locations: pp.checked_locations,
+									slot_data: p.slot_data,
+									slot_info: pp.slot_info
+								}));
 							case "ReceivedItems":
-								_packetQueue.push(ReceivedItems(p));
+								_packetQueue.push(ReceivedItems(new JsonParser<ReceivedItemsPacket>().fromJson(pStr)));
 							case "LocationInfo":
-								_packetQueue.push(LocationInfo(p));
+								_packetQueue.push(LocationInfo(new JsonParser<LocationInfoPacket>().fromJson(pStr)));
 							case "RoomUpdate":
-								_packetQueue.push(RoomUpdate(p));
+								_packetQueue.push(RoomUpdate(new JsonParser<RoomUpdatePacket>().fromJson(pStr)));
 							case "Print":
-								_packetQueue.push(Print(p));
+								_packetQueue.push(Print(new JsonParser<PrintPacket>().fromJson(pStr)));
 							case "PrintJSON":
-								_packetQueue.push(PrintJSON(p));
+								_packetQueue.push(PrintJSON(new JsonParser<PrintJsonPacket>().fromJson(pStr)));
 							case "DataPackage":
-								_packetQueue.push(DataPackage(p));
+								_packetQueue.push(DataPackage(new JsonParser<DataPackagePacket>().fromJson(pStr)));
 							case "Bounced":
 								_packetQueue.push(Bounced(p));
 							case "InvalidPacket":
-								trace("InvalidPacket received:" + Json.stringify(p));
-							case "Retrieved":
-								_packetQueue.push(Retrieved(p));
+								trace("InvalidPacket received:" + pStr);
+							// TODO: Retrieved packets have Dynamics in maps; neither JSON library is suitable for these
+							// case "Retrieved":
+							// 	_packetQueue.push(Retrieved(new JsonParser<RetrievedPacket>().fromJson(pStr)));
 							case "SetReply":
 								_packetQueue.push(SetReply(p));
 							case _:

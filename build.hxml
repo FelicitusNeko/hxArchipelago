@@ -1,3 +1,5 @@
 -L hxWebSockets
 -L helder.set
+-L json2object
+-D analyzer-optimize
 --cpp bin/cpp

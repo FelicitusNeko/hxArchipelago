@@ -1,7 +1,5 @@
 package ap;
 
-import haxe.Int64;
-
 @:enum
 abstract Permission(Int) from Int to Int {
 	var PERM_DISABLED = 0;
@@ -41,8 +39,8 @@ abstract JSONType(String) {
 }
 
 typedef NetworkItem = {
-	var item:Int64;
-	var location:Int64;
+	var item:Int;
+	var location:Int;
 	var player:Int;
 	var flags:ItemFlags;
 	var ?index:Int;
@@ -70,8 +68,8 @@ typedef Version = {
 }
 
 typedef GameData = {
-	var item_name_to_id:Map<String, Int64>;
-	var location_name_to_id:Map<String, Int64>;
+	var item_name_to_id:Map<String, Int>;
+	var location_name_to_id:Map<String, Int>;
 	var version:Int;
 }
 
@@ -94,17 +92,29 @@ typedef Packet = {
 // Incoming packets
 
 typedef RoomInfoPacket = {
+  @:default("RoomInfo")
 	var cmd:String;
+  @:default([])
 	var tags:Array<String>;
+  @:default(false)
 	var password:Bool;
+  @:default([])
 	var permissions:Map<String, Permission>;
+  @:default(20)
 	var hint_cost:Int;
+  @:default(1)
 	var location_check_points:Int;
+  @:default([])
 	var players:Array<NetworkPlayer>;
+  @:default([])
 	var games:Array<String>;
+  @:default(0)
 	var datapackage_version:Int;
+  @:default([])
 	var datapackage_versions:Map<String, Int>;
+  @:default("")
 	var seed_name:String;
+  @:default(0)
 	var time:Float;
 }
 
@@ -114,13 +124,34 @@ typedef ConnectionRefusedPacket = {
 }
 
 typedef ConnectedPacket = {
+  @:default("Connected")
   var cmd:String;
   var team:Int;
   var slot:Int;
+  @:default([])
   var players:Array<NetworkPlayer>;
-  var missing_locations:Array<Int64>;
-  var checked_locations:Array<Int64>;
+  @:default([])
+  var missing_locations:Array<Int>;
+  @:default([])
+  var checked_locations:Array<Int>;
+  @:default(null)
   var slot_data:Dynamic;
+  @:default([])
+  var slot_info:Map<Int, NetworkSlot>;
+}
+
+typedef ConnectedPacketND = {
+  @:default("Connected")
+  var cmd:String;
+  var team:Int;
+  var slot:Int;
+  @:default([])
+  var players:Array<NetworkPlayer>;
+  @:default([])
+  var missing_locations:Array<Int>;
+  @:default([])
+  var checked_locations:Array<Int>;
+  @:default([])
   var slot_info:Map<Int, NetworkSlot>;
 }
 
@@ -139,8 +170,8 @@ typedef RoomUpdatePacket = {
   var cmd:String;
   var hint_points:Int;
   var players:Array<NetworkPlayer>;
-  var checked_locations:Array<Int64>;
-  var missing_locations:Array<Int64>;
+  var checked_locations:Array<Int>;
+  var missing_locations:Array<Int>;
 }
 
 typedef PrintPacket = {
@@ -200,11 +231,11 @@ enum PacketType {
 
 typedef ConnectPacket = {
   var cmd:String;
-  var password:String;
+  var password:Null<String>;
   var game:String;
   var name:String;
   var uuid:String;
-  var version:Version;
+  var version:Map<String, Dynamic>;
   var items_handling:Int;
   var tags:Array<String>;
 }
