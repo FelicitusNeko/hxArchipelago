@@ -27,15 +27,15 @@ abstract ItemFlags(Int) from Int to Int {
 
 @:enum
 abstract JSONType(String) {
-  var JTYPE_TEXT = "text";
-  var JTYPE_PLAYER_ID = "player_id";
-  var JTYPE_PLAYER_NAME = "player_name";
-  var JTYPE_ITEM_ID = "item_id";
-  var JTYPE_ITEM_NAME = "item_name";
-  var JTYPE_LOCATION_ID = "location_id";
-  var JTYPE_LOCATION_NAME = "location_name";
-  var JTYPE_ENTRANCE_NAME = "entrance_name";
-  var JTYPE_COLOR = "color";
+	var JTYPE_TEXT = "text";
+	var JTYPE_PLAYER_ID = "player_id";
+	var JTYPE_PLAYER_NAME = "player_name";
+	var JTYPE_ITEM_ID = "item_id";
+	var JTYPE_ITEM_NAME = "item_name";
+	var JTYPE_LOCATION_ID = "location_id";
+	var JTYPE_LOCATION_NAME = "location_name";
+	var JTYPE_ENTRANCE_NAME = "entrance_name";
+	var JTYPE_COLOR = "color";
 }
 
 typedef NetworkItem = {
@@ -75,14 +75,14 @@ typedef GameData = {
 
 typedef DataPackageObject = {
 	var games:Map<String, GameData>;
-  var version:Int;
+	var version:Int;
 }
 
 typedef NetworkSlot = {
-  var name:String;
-  var game:String;
-  var type:SlotType;
-  var ?group_members:Array<Int>;
+	var name:String;
+	var game:String;
+	var type:SlotType;
+	var ?group_members:Array<Int>;
 }
 
 typedef Packet = {
@@ -92,86 +92,86 @@ typedef Packet = {
 // Incoming packets
 
 typedef RoomInfoPacket = {
-  @:default("RoomInfo")
+	@:default("RoomInfo")
 	var cmd:String;
-  @:default([])
+	@:default([])
 	var tags:Array<String>;
-  @:default(false)
+	@:default(false)
 	var password:Bool;
-  @:default([])
+	@:default([])
 	var permissions:Map<String, Permission>;
-  @:default(20)
+	@:default(20)
 	var hint_cost:Int;
-  @:default(1)
+	@:default(1)
 	var location_check_points:Int;
-  @:default([])
+	@:default([])
 	var players:Array<NetworkPlayer>;
-  @:default([])
+	@:default([])
 	var games:Array<String>;
-  @:default(0)
+	@:default(0)
 	var datapackage_version:Int;
-  @:default([])
+	@:default([])
 	var datapackage_versions:Map<String, Int>;
-  @:default("")
+	@:default("")
 	var seed_name:String;
-  @:default(0)
+	@:default(0)
 	var time:Float;
 }
 
 typedef ConnectionRefusedPacket = {
-  var cmd:String;
-  var errors:Array<String>;
+	var cmd:String;
+	var errors:Array<String>;
 }
 
 typedef ConnectedPacket = {
-  @:default("Connected")
-  var cmd:String;
-  var team:Int;
-  var slot:Int;
-  @:default([])
-  var players:Array<NetworkPlayer>;
-  @:default([])
-  var missing_locations:Array<Int>;
-  @:default([])
-  var checked_locations:Array<Int>;
-  @:default(null)
-  var slot_data:Dynamic;
-  @:default([])
-  var slot_info:Map<Int, NetworkSlot>;
+	@:default("Connected")
+	var cmd:String;
+	var team:Int;
+	var slot:Int;
+	@:default([])
+	var players:Array<NetworkPlayer>;
+	@:default([])
+	var missing_locations:Array<Int>;
+	@:default([])
+	var checked_locations:Array<Int>;
+	@:default(null)
+	var slot_data:Dynamic;
+	@:default([])
+	var slot_info:Map<Int, NetworkSlot>;
 }
 
 typedef ConnectedPacketND = {
-  @:default("Connected")
-  var cmd:String;
-  var team:Int;
-  var slot:Int;
-  @:default([])
-  var players:Array<NetworkPlayer>;
-  @:default([])
-  var missing_locations:Array<Int>;
-  @:default([])
-  var checked_locations:Array<Int>;
-  @:default([])
-  var slot_info:Map<Int, NetworkSlot>;
+	@:default("Connected")
+	var cmd:String;
+	var team:Int;
+	var slot:Int;
+	@:default([])
+	var players:Array<NetworkPlayer>;
+	@:default([])
+	var missing_locations:Array<Int>;
+	@:default([])
+	var checked_locations:Array<Int>;
+	@:default([])
+	var slot_info:Map<Int, NetworkSlot>;
 }
 
 typedef ReceivedItemsPacket = {
-  var cmd:String;
-  var index:Int;
-  var items:Array<NetworkItem>;
+	var cmd:String;
+	var index:Int;
+	var items:Array<NetworkItem>;
 }
 
 typedef LocationInfoPacket = {
-  var cmd:String;
-  var locations:Array<NetworkItem>;
+	var cmd:String;
+	var locations:Array<NetworkItem>;
 }
 
 typedef RoomUpdatePacket = {
-  var cmd:String;
-  var hint_points:Int;
-  var players:Array<NetworkPlayer>;
-  var checked_locations:Array<Int>;
-  var missing_locations:Array<Int>;
+	var cmd:String;
+	var hint_points:Int;
+	var players:Array<NetworkPlayer>;
+	var checked_locations:Array<Int>;
+	var missing_locations:Array<Int>;
 }
 
 typedef PrintPacket = {
@@ -181,76 +181,75 @@ typedef PrintPacket = {
 
 typedef PrintJsonPacket = {
 	var cmd:String;
-  var data:Array<JSONMessagePart>;
-  var receiving:Int;
-  var item:NetworkItem;
-  var found:Bool;
+	var data:Array<JSONMessagePart>;
+	var receiving:Int;
+	var item:NetworkItem;
+	var found:Bool;
 }
 
 typedef DataPackagePacket = {
 	var cmd:String;
-  var data:DataPackageObject;
+	var data:DataPackageObject;
 }
 
 typedef BouncedPacket = {
 	var cmd:String;
-  var games:Array<String>;
-  var slots:Array<Int>;
-  var tags:Array<String>;
-  var data:Dynamic;
+	var games:Array<String>;
+	var slots:Array<Int>;
+	var tags:Array<String>;
+	var data:Dynamic;
 }
 
 typedef RetrievedPacket = {
 	var cmd:String;
-  var keys:Map<String, Dynamic>;
+	var keys:Map<String, Dynamic>;
 }
 
 typedef SetReplyPacket = {
 	var cmd:String;
-  var key:String;
-  var value:Dynamic;
-  var original_value:Dynamic;
+	var key:String;
+	var value:Dynamic;
+	var original_value:Dynamic;
 }
 
 enum PacketType {
-  RoomInfo(p:RoomInfoPacket);
-  ConnectionRefused(p:ConnectionRefusedPacket);
-  Connected(p:ConnectedPacket);
-  ReceivedItems(p:ReceivedItemsPacket);
-  LocationInfo(p:LocationInfoPacket);
-  RoomUpdate(p:RoomUpdatePacket);
-  Print(p:PrintPacket);
-  PrintJSON(p:PrintJsonPacket);
-  DataPackage(p:DataPackagePacket);
-  Bounced(p:BouncedPacket);
-  Retrieved(p:RetrievedPacket);
-  SetReply(p:SetReplyPacket);
+	RoomInfo(p:RoomInfoPacket);
+	ConnectionRefused(p:ConnectionRefusedPacket);
+	Connected(p:ConnectedPacket);
+	ReceivedItems(p:ReceivedItemsPacket);
+	LocationInfo(p:LocationInfoPacket);
+	RoomUpdate(p:RoomUpdatePacket);
+	Print(p:PrintPacket);
+	PrintJSON(p:PrintJsonPacket);
+	DataPackage(p:DataPackagePacket);
+	Bounced(p:BouncedPacket);
+	Retrieved(p:RetrievedPacket);
+	SetReply(p:SetReplyPacket);
 }
 
 // Outgoing packets
 
 typedef ConnectPacket = {
-  var cmd:String;
-  var password:Null<String>;
-  var game:String;
-  var name:String;
-  var uuid:String;
-  var version:Map<String, Dynamic>;
-  var items_handling:Int;
-  var tags:Array<String>;
+	var cmd:String;
+	var password:Null<String>;
+	var game:String;
+	var name:String;
+	var uuid:String;
+	var version:Map<String, Dynamic>;
+	var items_handling:Int;
+	var tags:Array<String>;
 }
 
 typedef ConnectUpdatePacket = {
-  var cmd:String;
-  var ?items_handling:Int;
-  var ?tags:Array<String>;
+	var cmd:String;
+	var ?items_handling:Int;
+	var ?tags:Array<String>;
 }
 
 // Bounce packets
 
-  typedef DeathLinkBouncePacket = {
-    var time:Float;
-    var cause:String;
-    var source:String;
-  }
-  
+typedef DeathLinkBouncePacket = {
+	var time:Float;
+	var cause:String;
+	var source:String;
+}

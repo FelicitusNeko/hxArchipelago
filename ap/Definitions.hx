@@ -8,12 +8,17 @@ abstract State(Int) {
 	var ROOM_INFO = 3;
 	var SLOT_CONNECTED = 4;
 
-  @:op(A < B) static function lt(a:State, b:State):Bool;
-  @:op(A <= B) static function lte(a:State, b:State):Bool;
-  @:op(A > B) static function gt(a:State, b:State):Bool;
-  @:op(A >= B) static function gte(a:State, b:State):Bool;
-  @:op(A == B) static function eq(a:State, b:State):Bool;
-  @:op(A != B) static function ne(a:State, b:State):Bool;
+	@:op(A < B) static function lt(a:State, b:State):Bool;
+
+	@:op(A <= B) static function lte(a:State, b:State):Bool;
+
+	@:op(A > B) static function gt(a:State, b:State):Bool;
+
+	@:op(A >= B) static function gte(a:State, b:State):Bool;
+
+	@:op(A == B) static function eq(a:State, b:State):Bool;
+
+	@:op(A != B) static function ne(a:State, b:State):Bool;
 }
 
 @:enum
@@ -29,4 +34,3 @@ enum RenderFormat {
 	HTML;
 	ANSI;
 }
-

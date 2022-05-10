@@ -230,15 +230,16 @@ class Client {
 				if (color == null && colorIsSet) {
 					out += color2ansi("");
 					colorIsSet = false;
-				}
-				else if (color != null) {
+				} else if (color != null) {
 					out += color2ansi(color);
 					colorIsSet = true;
 				}
 				out += deansify(text);
-			} else out += text;
+			} else
+				out += text;
 		}
-		if (fmt == RenderFormat.ANSI && colorIsSet) out += color2ansi("");
+		if (fmt == RenderFormat.ANSI && colorIsSet)
+			out += color2ansi("");
 		return out;
 	}
 
@@ -427,135 +428,135 @@ class Client {
 		_msgMutex.acquire();
 		if (_packetQueue.length > 0)
 			// try {
-				for (packet in _packetQueue) {
-					switch (packet) {
-						case RoomInfo(p):
-							{
-								trace("RoomInfo:" + Json.stringify(p));
-								_localConnectTime = Timer.stamp();
-								_serverConnectTime = p.time;
-								_seed = p.seed_name;
-								if (_state < State.ROOM_INFO)
-									_state = State.ROOM_INFO;
-								if (_hOnRoomInfo != null)
-									_hOnRoomInfo();
+			for (packet in _packetQueue) {
+				switch (packet) {
+					case RoomInfo(p):
+						{
+							trace("RoomInfo:" + Json.stringify(p));
+							_localConnectTime = Timer.stamp();
+							_serverConnectTime = p.time;
+							_seed = p.seed_name;
+							if (_state < State.ROOM_INFO)
+								_state = State.ROOM_INFO;
+							if (_hOnRoomInfo != null)
+								_hOnRoomInfo();
 
-								_dataPackageValid = true;
-								var exclude:Array<String> = [];
-								trace(p);
-								for (game => ver in p.datapackage_versions) {
-									try {
-										if (ver < 1) {
-											_dataPackageValid = false;
-											continue;
-										}
-										if (_dataPackage.games[game] == null) {
-											_dataPackageValid = false;
-											continue;
-										}
-										if (_dataPackage.games[game].version != ver) {
-											_dataPackageValid = false;
-											continue;
-										}
-										exclude.push(game);
-									} catch (e) {
-										trace(e.message);
-										_dataPackageValid = false;
-									}
-								}
-								if (!_dataPackageValid)
-									GetDataPackage(exclude);
-								#if debug
-								else
-									trace("DataPackage up to date");
-								#end
-							}
-
-						case ConnectionRefused(p):
-							if (_hOnSlotRefused != null)
-								_hOnSlotRefused(p.errors);
-
-						case Connected(p):
-							_state = State.SLOT_CONNECTED;
-							_team = p.team;
-							_slotnr = p.slot;
-							_players = [];
-							for (player in p.players)
-								_players.push({
-									team: player.team,
-									slot: player.slot,
-									alias: player.alias,
-									name: player.name
-								});
-							if (_hOnSlotConnected != null)
-								_hOnSlotConnected(p.slot_data);
-							// TODO: [upstream] store checked/missing locations
-							if (_hOnLocationChecked != null)
-								_hOnLocationChecked(p.checked_locations);
-
-						case ReceivedItems(p):
-							{
-								var index:Int = p.index;
-								for (item in p.items)
-									item.index = index++;
-								if (_hOnItemsReceived != null)
-									_hOnItemsReceived(p.items);
-							}
-
-						case LocationInfo(p):
-							{
-								if (_hOnLocationInfo != null)
-									_hOnLocationInfo(p.locations);
-							}
-
-						case RoomUpdate(p):
-							// TODO: [upstream] store checked/missing locations
-							if (_hOnLocationChecked != null)
-								_hOnLocationChecked(p.checked_locations);
-
-						case DataPackage(p):
-							var data = _dataPackage;
-							if (data.games == null)
-								data.games = [];
-							for (game => gameData in p.data.games)
-								data.games[game] = gameData;
-							data.version = p.data.version;
-							_dataPackageValid = false;
-							set_data_package(data);
 							_dataPackageValid = true;
-							if (_hOnDataPackageChanged != null)
-								_hOnDataPackageChanged(_dataPackage);
-
-						case Print(p):
-							if (_hOnPrint != null)
-								_hOnPrint(p.text);
-
-						case PrintJSON(p):
-							if (_hOnPrintJson != null)
-								_hOnPrintJson(p.data);
-
-						case Bounced(p):
-							if (_hOnBounced != null)
-								_hOnBounced(p.data);
-
-						case _:
+							var exclude:Array<String> = [];
+							trace(p);
+							for (game => ver in p.datapackage_versions) {
+								try {
+									if (ver < 1) {
+										_dataPackageValid = false;
+										continue;
+									}
+									if (_dataPackage.games[game] == null) {
+										_dataPackageValid = false;
+										continue;
+									}
+									if (_dataPackage.games[game].version != ver) {
+										_dataPackageValid = false;
+										continue;
+									}
+									exclude.push(game);
+								} catch (e) {
+									trace(e.message);
+									_dataPackageValid = false;
+								}
+							}
+							if (!_dataPackageValid)
+								GetDataPackage(exclude);
 							#if debug
-							trace("unhandled cmd");
+							else
+								trace("DataPackage up to date");
 							#end
-					}
+						}
+
+					case ConnectionRefused(p):
+						if (_hOnSlotRefused != null)
+							_hOnSlotRefused(p.errors);
+
+					case Connected(p):
+						_state = State.SLOT_CONNECTED;
+						_team = p.team;
+						_slotnr = p.slot;
+						_players = [];
+						for (player in p.players)
+							_players.push({
+								team: player.team,
+								slot: player.slot,
+								alias: player.alias,
+								name: player.name
+							});
+						if (_hOnSlotConnected != null)
+							_hOnSlotConnected(p.slot_data);
+						// TODO: [upstream] store checked/missing locations
+						if (_hOnLocationChecked != null)
+							_hOnLocationChecked(p.checked_locations);
+
+					case ReceivedItems(p):
+						{
+							var index:Int = p.index;
+							for (item in p.items)
+								item.index = index++;
+							if (_hOnItemsReceived != null)
+								_hOnItemsReceived(p.items);
+						}
+
+					case LocationInfo(p):
+						{
+							if (_hOnLocationInfo != null)
+								_hOnLocationInfo(p.locations);
+						}
+
+					case RoomUpdate(p):
+						// TODO: [upstream] store checked/missing locations
+						if (_hOnLocationChecked != null)
+							_hOnLocationChecked(p.checked_locations);
+
+					case DataPackage(p):
+						var data = _dataPackage;
+						if (data.games == null)
+							data.games = [];
+						for (game => gameData in p.data.games)
+							data.games[game] = gameData;
+						data.version = p.data.version;
+						_dataPackageValid = false;
+						set_data_package(data);
+						_dataPackageValid = true;
+						if (_hOnDataPackageChanged != null)
+							_hOnDataPackageChanged(_dataPackage);
+
+					case Print(p):
+						if (_hOnPrint != null)
+							_hOnPrint(p.text);
+
+					case PrintJSON(p):
+						if (_hOnPrintJson != null)
+							_hOnPrintJson(p.data);
+
+					case Bounced(p):
+						if (_hOnBounced != null)
+							_hOnBounced(p.data);
+
+					case _:
+						#if debug
+						trace("unhandled cmd");
+						#end
 				}
-				_packetQueue = [];
-			// } catch (e) {
-			// 	#if debug
-			// 	for (item in e.stack) {
-			// 		trace((item.getName()));
-			// 	}
-			// 	trace(e.details());
-			// 	throw e;
-			// 	#else
-			// 	trace(e.message);
-			// 	#end
-			// }
+			}
+		_packetQueue = [];
+		// } catch (e) {
+		// 	#if debug
+		// 	for (item in e.stack) {
+		// 		trace((item.getName()));
+		// 	}
+		// 	trace(e.details());
+		// 	throw e;
+		// 	#else
+		// 	trace(e.message);
+		// 	#end
+		// }
 		_msgMutex.release();
 	}
 
