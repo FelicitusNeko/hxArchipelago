@@ -10,4 +10,4 @@ Just install the package via `haxelib`, then `import ap.Client` into your projec
 
 ### Warning
 
-This package is currently untested. Use at your own risk.
+This package is largely untested. Use at your own risk.
