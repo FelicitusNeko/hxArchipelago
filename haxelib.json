@@ -11,5 +11,6 @@
     "hxWebSockets": "",
     "helder.set": "",
     "json2object": ""
-  }
+  },
+  "classPath": "src"
 }

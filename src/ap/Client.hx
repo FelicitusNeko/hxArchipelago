@@ -1,5 +1,7 @@
 package ap;
 
+import sys.FileSystem;
+import sys.io.File;
 import ap.Definitions;
 import ap.PacketTypes;
 import haxe.Json;
@@ -15,145 +17,95 @@ using StringTools;
 using ap.Bitsets;
 
 class Client {
-	private var _uri:String;
-	private var _game:String;
-	private var _uuid:String;
+	public var uri(default, null):String;
+	public var _game(default, null):String;
+	public var uuid(default, null):String;
 	private var _ws:WebSocket;
-	private var _state:State = State.DISCONNECTED;
+	public var state(default, null):State = State.DISCONNECTED;
 
-	private var _hOnSocketConnected:Void->Void = null;
-	private var _hOnSocketDisconnected:Void->Void = null;
-	private var _hOnSlotConnected:Dynamic->Void = null;
-	private var _hOnSlotDisconnected:Void->Void = null;
-	private var _hOnSlotRefused:Array<String>->Void = null;
-	private var _hOnRoomInfo:Void->Void = null;
-	private var _hOnItemsReceived:Array<NetworkItem>->Void = null;
-	private var _hOnLocationInfo:Array<NetworkItem>->Void = null;
-	private var _hOnDataPackageChanged:Dynamic->Void = null;
-	private var _hOnPrint:String->Void = null;
-	private var _hOnPrintJson:(Array<JSONMessagePart>) -> Void = null;
-	private var _hOnBounced:Dynamic->Void = null;
-	private var _hOnLocationChecked:Array<Int>->Void = null;
+	public var _hOnSocketConnected(null, default):Void->Void = null;
+	public var _hOnSocketDisconnected(null, default):Void->Void = null;
+	public var _hOnSlotConnected(null, default):Dynamic->Void = null;
+	public var _hOnSlotDisconnected(null, default):Void->Void = null;
+	public var _hOnSlotRefused(null, default):Array<String>->Void = null;
+	public var _hOnRoomInfo(null, default):Void->Void = null;
+	public var _hOnItemsReceived(null, default):Array<NetworkItem>->Void = null;
+	public var _hOnLocationInfo(null, default):Array<NetworkItem>->Void = null;
+	public var _hOnDataPackageChanged(null, default):DataPackageObject->Void = null;
+	public var _hOnPrint(null, default):String->Void = null;
+	public var _hOnPrintJson(null, default):(Array<JSONMessagePart>, NetworkItem, Int) -> Void = null;
+	public var _hOnBounced(null, default):Dynamic->Void = null;
+	public var _hOnLocationChecked(null, default):Array<Int>->Void = null;
 
-	private var _lastSocketConnect:Float;
+	private var _lastSocketConnect:Float = 0;
 	private var _socketReconnectInterval:Float = 1.5;
-	private var _checkQueue:Set<Int>;
-	private var _scoutQueue:Set<Int>;
+	private var _checkQueue = new Set<Int>();
+	private var _scoutQueue = new Set<Int>();
 	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
-	private var _seed:String;
-	private var _slot:String;
-	private var _team:Int = -1;
-	private var _slotnr:Int = -1;
-	private var _players:Array<NetworkPlayer>;
-	private var _locations:Map<Int, String>;
-	private var _items:Map<Int, String>;
-	private var _dataPackageValid:Bool = false;
+	public var seed(default, null):String = "";
+	public var slot(default, null):String = "";
+	public var team(default, null):Int = -1;
+	public var slotnr(default, null):Int = -1;
+	private var _players:Array<NetworkPlayer> = [];
+	private var _locations:Map<Int, String> = [];
+	private var _items:Map<Int, String> = [];
+	public var dataPackageValid(default, null):Bool = false;
 	private var _dataPackage:DataPackageObject;
-	private var _serverConnectTime:Float;
-	private var _localConnectTime:Float;
+	public var serverConnectTime(default, null):Float = 0;
+	public var localConnectTime(default, null):Float = 0;
 
-	private var _packetQueue:Array<PacketType>;
-	private var _msgMutex:Mutex;
+	private var _packetQueue:Array<PacketType> = [];
+	private var _msgMutex = new Mutex();
 
-	public var state(get, never):State;
-	public var seed(get, never):String;
-	public var slot(get, never):String;
 	public var player_number(get, never):Int;
 	public var is_data_package_valid(get, never):Bool;
 	public var server_time(get, never):Float;
 
-	// [private] std::chrono::steady_clock::time_point _localConnectTime;
+	// [private] std::chrono::steady_clock::time_point localConnectTime;
 
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
 		#if debug
 		trace("Creating new AP client to " + uri);
 		#end
-		_players = [];
-		_locations = [];
-		_items = [];
-		_checkQueue = new Set<Int>();
-		_scoutQueue = new Set<Int>();
-		_packetQueue = [];
-		_msgMutex = new Mutex();
 
 		if (uri.length > 0) {
 			var p = uri.indexOf("://");
 			if (p < 0) {
-				_uri = "ws://" + uri;
+				uri = "ws://" + uri;
 				p = 2;
 			} else
-				_uri = uri;
+				this.uri = uri;
 
-			var pColon = _uri.indexOf(":", p + 3);
-			var pSlash = _uri.indexOf("/", p + 3);
+			var pColon = uri.indexOf(":", p + 3);
+			var pSlash = uri.indexOf("/", p + 3);
 			if (pColon < 0 || (pSlash >= 0 && pColon > pSlash)) {
-				var tmp = _uri.substr(0, pSlash) + ":38281";
+				var tmp = uri.substr(0, pSlash) + ":38281";
 				if (pSlash >= 0)
-					tmp += _uri.substr(pSlash);
-				_uri = tmp;
+					tmp += uri.substr(pSlash);
+				uri = tmp;
 			}
 		}
 
-		_uuid = uuid;
+		this.uuid = uuid;
 		_game = game;
 		_dataPackage = {version: 1, games: new Map<String, GameData>()};
 		connect_socket();
 	}
 
-	public function set_socket_connected_handler(f:Void->Void) {
-		_hOnSocketConnected = f;
+	public function get_player_number():Int {
+		return slotnr;
 	}
 
-	public function set_socket_disconnected_handler(f:Void->Void) {
-		_hOnSocketDisconnected = f;
+	public function get_is_data_package_valid():Bool {
+		return dataPackageValid;
 	}
 
-	public function set_slot_connected_handler(f:Dynamic->Void) {
-		_hOnSlotConnected = f;
-	}
-
-	public function set_slot_refused_handler(f:Array<String>->Void) {
-		_hOnSlotRefused = f;
-	}
-
-	public function set_slot_disconnected_handler(f:Void->Void) {
-		_hOnSlotDisconnected = f;
-	}
-
-	public function set_room_info_handler(f:Void->Void) {
-		_hOnRoomInfo = f;
-	}
-
-	public function set_items_received_handler(f:Array<NetworkItem>->Void) {
-		_hOnItemsReceived = f;
-	}
-
-	public function set_location_info_handler(f:Array<NetworkItem>->Void) {
-		_hOnLocationInfo = f;
-	}
-
-	public function set_data_package_changed_handler(f:Dynamic->Void) {
-		_hOnDataPackageChanged = f;
-	}
-
-	public function set_print_handler(f:String->Void) {
-		_hOnPrint = f;
-	}
-
-	public function set_print_json_handler(f:(Array<JSONMessagePart>) -> Void) {
-		_hOnPrintJson = f;
-	}
-
-	public function set_bounced_handler(f:Dynamic->Void) {
-		_hOnBounced = f;
-	}
-
-	public function set_location_checked_handler(f:Array<Int>->Void) {
-		_hOnLocationChecked = f;
+	public function get_server_time():Float {
+		return serverConnectTime + (Timer.stamp() - localConnectTime);
 	}
 
 	public function set_data_package(data:Dynamic) {
-		if (!_dataPackageValid && data.games) {
+		if (!dataPackageValid && data.games) {
 			_dataPackage = data;
 			for (game => gamedata in _dataPackage.games) {
 				_dataPackage.games[game] = gamedata;
@@ -165,11 +117,31 @@ class Client {
 		}
 	}
 
+	#if sys
+	public function set_data_package_from_file(path:String) {
+		if (!FileSystem.exists(path))
+			return false;
+		set_data_package(Json.parse(File.getContent(path)));
+		return true;
+	}
+
+	public function save_data_package(path:String) {
+		try {
+			var f = File.write(path, true);
+			f.writeString(Json.stringify(_dataPackage));
+			f.close();
+		} catch (_) {
+			return false;
+		}
+		return true;
+	}
+	#end
+
 	public function get_player_alias(slot:Int):String {
 		if (slot == 0)
 			return "Server";
 		for (player in _players)
-			if (player.team == _team && player.slot == slot)
+			if (player.team == team && player.slot == slot)
 				return player.alias;
 		return "Unknown";
 	}
@@ -178,6 +150,19 @@ class Client {
 		if (_locations.exists(code))
 			return _locations.get(code);
 		return "Unknown";
+	}
+
+	/**
+		Usage is not recommended
+
+		Return the id associated with the location name
+
+		Return `null` when undefined
+	**/
+	public function get_location_id(name:String):Null<Int> {
+		if (_dataPackage.games.exists(_game) && _dataPackage.games[_game].location_name_to_id.exists(name))
+			return _dataPackage.games[_game].location_name_to_id[name];
+		return null;
 	}
 
 	public function get_item_name(code:Int):String {
@@ -203,7 +188,7 @@ class Client {
 			switch (node.type) {
 				case JTYPE_PLAYER_ID:
 					if (color == null)
-						color = id == _slotnr ? "magenta" : "yellow";
+						color = id == slotnr ? "magenta" : "yellow";
 					text = get_player_alias(id);
 				case JTYPE_ITEM_ID:
 					if (color == null) {
@@ -223,7 +208,7 @@ class Client {
 					if (color == null)
 						color = "blue";
 					text = get_location_name(id);
-				case _:
+				default:
 					text = node.text;
 			}
 			if (fmt == RenderFormat.ANSI) {
@@ -252,7 +237,7 @@ class Client {
 	}
 
 	public function LocationChecks(locations:Array<Int>):Bool {
-		if (_state == State.SLOT_CONNECTED) {
+		if (state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationChecks",
 				locations: locations
@@ -265,7 +250,7 @@ class Client {
 	}
 
 	public function LocationScouts(locations:Array<Int>):Bool {
-		if (_state == State.SLOT_CONNECTED) {
+		if (state == State.SLOT_CONNECTED) {
 			InternalSend({
 				cmd: "LocationScouts",
 				locations: locations
@@ -278,7 +263,7 @@ class Client {
 	}
 
 	public function StatusUpdate(status:ClientStatus):Bool {
-		if (_state == State.SLOT_CONNECTED) {
+		if (state == State.SLOT_CONNECTED) {
 			return InternalSend({
 				cmd: "StatusUpdate",
 				status: status
@@ -304,16 +289,16 @@ class Client {
 		sendVer.set("build", ver.build);
 		sendVer.set("class", "Version");
 
-		if (_state < State.SOCKET_CONNECTED)
+		if (state < State.SOCKET_CONNECTED)
 			return false;
-		_slot = name;
+		slot = name;
 		#if debug
 		trace("Connecting slot...");
 		#end
 		var p:ConnectPacket = {
 			cmd: "Connect",
 			game: _game,
-			uuid: _uuid,
+			uuid: uuid,
 			name: name,
 			password: password,
 			version: sendVer,
@@ -338,7 +323,7 @@ class Client {
 	}
 
 	public function Sync():Bool {
-		if (_state < State.SLOT_CONNECTED)
+		if (state < State.SLOT_CONNECTED)
 			return false;
 		return InternalSend({
 			cmd: "Sync"
@@ -346,7 +331,7 @@ class Client {
 	}
 
 	public function GetDataPackage(exclude:Array<String>):Bool {
-		if (_state < State.SLOT_CONNECTED)
+		if (state < State.SLOT_CONNECTED)
 			return false;
 		return InternalSend({
 			cmd: "GetDataPackage",
@@ -355,7 +340,7 @@ class Client {
 	}
 
 	public function Bounce(data:Dynamic, games:Array<String>, slots:Array<Int>, tags:Array<String>):Bool {
-		if (_state < State.ROOM_INFO)
+		if (state < State.ROOM_INFO)
 			return false;
 		var packet:Dynamic = {
 			cmd: "Bounce",
@@ -373,7 +358,7 @@ class Client {
 	}
 
 	public function Say(text:String):Bool {
-		if (_state < State.ROOM_INFO)
+		if (state < State.ROOM_INFO)
 			return false;
 		return InternalSend({
 			cmd: "Say",
@@ -381,41 +366,17 @@ class Client {
 		});
 	}
 
-	public function get_state():State {
-		return _state;
-	}
-
-	public function get_seed():String {
-		return _seed;
-	}
-
-	public function get_slot():String {
-		return _slot;
-	}
-
-	public function get_player_number():Int {
-		return _slotnr;
-	}
-
-	public function get_is_data_package_valid():Bool {
-		return _dataPackageValid;
-	}
-
-	public function get_server_time():Float {
-		return _serverConnectTime + (Timer.stamp() - _localConnectTime);
-	}
-
 	public function poll() {
-		if (_ws != null && _state == State.DISCONNECTED) {
+		if (_ws != null && state == State.DISCONNECTED) {
 			_ws.close();
 			_ws = null;
 		}
 		if (_ws != null)
 			process_queue();
-		if (_state < State.SOCKET_CONNECTED) {
+		if (state < State.SOCKET_CONNECTED) {
 			var t = Timer.stamp();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
-				if (_state != State.DISCONNECTED)
+				if (state != State.DISCONNECTED)
 					trace("Connect timed out. Retrying.");
 				else
 					trace("Reconnecting to server");
@@ -433,38 +394,38 @@ class Client {
 					case RoomInfo(p):
 						{
 							trace("RoomInfo:" + Json.stringify(p));
-							_localConnectTime = Timer.stamp();
-							_serverConnectTime = p.time;
-							_seed = p.seed_name;
-							if (_state < State.ROOM_INFO)
-								_state = State.ROOM_INFO;
+							localConnectTime = Timer.stamp();
+							serverConnectTime = p.time;
+							seed = p.seed_name;
+							if (state < State.ROOM_INFO)
+								state = State.ROOM_INFO;
 							if (_hOnRoomInfo != null)
 								_hOnRoomInfo();
 
-							_dataPackageValid = true;
+							dataPackageValid = true;
 							var exclude:Array<String> = [];
 							trace(p);
 							for (game => ver in p.datapackage_versions) {
 								try {
 									if (ver < 1) {
-										_dataPackageValid = false;
+										dataPackageValid = false;
 										continue;
 									}
 									if (_dataPackage.games[game] == null) {
-										_dataPackageValid = false;
+										dataPackageValid = false;
 										continue;
 									}
 									if (_dataPackage.games[game].version != ver) {
-										_dataPackageValid = false;
+										dataPackageValid = false;
 										continue;
 									}
 									exclude.push(game);
 								} catch (e) {
 									trace(e.message);
-									_dataPackageValid = false;
+									dataPackageValid = false;
 								}
 							}
-							if (!_dataPackageValid)
+							if (!dataPackageValid)
 								GetDataPackage(exclude);
 							#if debug
 							else
@@ -477,9 +438,9 @@ class Client {
 							_hOnSlotRefused(p.errors);
 
 					case Connected(p):
-						_state = State.SLOT_CONNECTED;
-						_team = p.team;
-						_slotnr = p.slot;
+						state = State.SLOT_CONNECTED;
+						team = p.team;
+						slotnr = p.slot;
 						_players = [];
 						for (player in p.players)
 							_players.push({
@@ -521,9 +482,9 @@ class Client {
 						for (game => gameData in p.data.games)
 							data.games[game] = gameData;
 						data.version = p.data.version;
-						_dataPackageValid = false;
+						dataPackageValid = false;
 						set_data_package(data);
-						_dataPackageValid = true;
+						dataPackageValid = true;
 						if (_hOnDataPackageChanged != null)
 							_hOnDataPackageChanged(_dataPackage);
 
@@ -533,7 +494,7 @@ class Client {
 
 					case PrintJSON(p):
 						if (_hOnPrintJson != null)
-							_hOnPrintJson(p.data);
+							_hOnPrintJson(p.data, p.item, p.receiving);
 
 					case Bounced(p):
 						if (_hOnBounced != null)
@@ -566,10 +527,10 @@ class Client {
 		_ws = null;
 		_checkQueue.clear();
 		_scoutQueue.clear();
-		_seed = "";
-		_slot = "";
-		_team = -1;
-		_slotnr = -1;
+		seed = "";
+		slot = "";
+		team = -1;
+		slotnr = -1;
 		_players = [];
 		_clientStatus = ClientStatus.UNKNOWN;
 	}
@@ -589,7 +550,7 @@ class Client {
 		trace("onopen()");
 		#end
 		trace("Server connected");
-		_state = State.SOCKET_CONNECTED;
+		state = State.SOCKET_CONNECTED;
 		if (_hOnSocketConnected != null)
 			_hOnSocketConnected();
 		_socketReconnectInterval = 1500;
@@ -599,14 +560,14 @@ class Client {
 		#if debug
 		trace("onclose()");
 		#end
-		if (_state > State.SOCKET_CONNECTING) {
+		if (state > State.SOCKET_CONNECTING) {
 			trace("Server disconnected");
-			_state = State.DISCONNECTED;
+			state = State.DISCONNECTED;
 			if (_hOnSocketDisconnected != null)
 				_hOnSocketDisconnected();
 		}
-		_state = State.DISCONNECTED;
-		_seed = "";
+		state = State.DISCONNECTED;
+		seed = "";
 	}
 
 	private function onmessage(msg:MessageType) {
@@ -680,16 +641,16 @@ class Client {
 	private function connect_socket() {
 		if (_ws != null)
 			_ws.close();
-		if (_uri.length == 0) {
+		if (uri.length == 0) {
 			_ws = null;
-			_state = State.DISCONNECTED;
+			state = State.DISCONNECTED;
 			return;
 		}
-		_state = State.SOCKET_CONNECTING;
+		state = State.SOCKET_CONNECTING;
 		#if debug
-		trace("Connecting to " + _uri);
+		trace("Connecting to " + uri);
 		#end
-		_ws = new WebSocket(_uri);
+		_ws = new WebSocket(uri);
 		_ws.onopen = onopen;
 		_ws.onclose = onclose;
 		_ws.onmessage = onmessage;
@@ -697,8 +658,8 @@ class Client {
 
 		_lastSocketConnect = Timer.stamp();
 		_socketReconnectInterval *= 2;
-		if (_socketReconnectInterval > 15000)
-			_socketReconnectInterval = 15000;
+		if (_socketReconnectInterval > 15)
+			_socketReconnectInterval = 15;
 	}
 
 	private function color2ansi(color:String):String {
