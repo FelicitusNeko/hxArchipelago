@@ -1,5 +1,6 @@
+-cp src
 -L hxWebSockets
 -L helder.set
--L json2object
+-L tink_json
 -D analyzer-optimize
 --cpp bin/cpp
