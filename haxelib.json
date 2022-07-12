@@ -10,7 +10,7 @@
   "dependencies": {
     "hxWebSockets": "",
     "helder.set": "",
-    "json2object": ""
+    "tink_json": ""
   },
   "classPath": "src"
 }

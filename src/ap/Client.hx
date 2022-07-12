@@ -1,17 +1,20 @@
 package ap;
 
-import sys.FileSystem;
-import sys.io.File;
+import haxe.DynamicAccess;
 import ap.Definitions;
 import ap.PacketTypes;
-import haxe.Json;
-import haxe.Timer;
 import haxe.exceptions.NotImplementedException;
+import haxe.Timer;
+import haxe.Json as HJson;
 import helder.Set;
 import hx.ws.Types.MessageType;
 import hx.ws.WebSocket;
-import json2object.JsonParser;
+#if sys
+import sys.FileSystem;
+import sys.io.File;
+#end
 import sys.thread.Mutex;
+import tink.Json as TJson;
 
 using StringTools;
 using ap.Bitsets;
@@ -20,8 +23,34 @@ class Client {
 	public var uri(default, null):String;
 	public var _game(default, null):String;
 	public var uuid(default, null):String;
+
 	private var _ws:WebSocket;
+	private var _lastSocketConnect:Float = 0;
+	private var _socketReconnectInterval:Float = 1.5;
+	private var _checkQueue = new Set<Int>();
+	private var _scoutQueue = new Set<Int>();
+	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
+
+	private var _players:Array<NetworkPlayer> = [];
+	private var _locations:Map<Int, String> = [];
+	private var _items:Map<Int, String> = [];
+	private var _dataPackage:DataPackageObject;
+
 	public var state(default, null):State = State.DISCONNECTED;
+	public var seed(default, null):String = "";
+	public var slot(default, null):String = "";
+	public var team(default, null):Int = -1;
+	public var slotnr(default, null):Int = -1;
+	public var dataPackageValid(default, null):Bool = false;
+	public var serverConnectTime(default, null):Float = 0;
+	public var localConnectTime(default, null):Float = 0;
+
+	public var player_number(get, never):Int;
+	public var is_data_package_valid(get, never):Bool;
+	public var server_time(get, never):Float;
+
+	private var _packetQueue:Array<IncomingPacket> = [];
+	private var _msgMutex = new Mutex();
 
 	public var _hOnSocketConnected(null, default):Void->Void = null;
 	public var _hOnSocketDisconnected(null, default):Void->Void = null;
@@ -36,30 +65,6 @@ class Client {
 	public var _hOnPrintJson(null, default):(Array<JSONMessagePart>, NetworkItem, Int) -> Void = null;
 	public var _hOnBounced(null, default):Dynamic->Void = null;
 	public var _hOnLocationChecked(null, default):Array<Int>->Void = null;
-
-	private var _lastSocketConnect:Float = 0;
-	private var _socketReconnectInterval:Float = 1.5;
-	private var _checkQueue = new Set<Int>();
-	private var _scoutQueue = new Set<Int>();
-	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
-	public var seed(default, null):String = "";
-	public var slot(default, null):String = "";
-	public var team(default, null):Int = -1;
-	public var slotnr(default, null):Int = -1;
-	private var _players:Array<NetworkPlayer> = [];
-	private var _locations:Map<Int, String> = [];
-	private var _items:Map<Int, String> = [];
-	public var dataPackageValid(default, null):Bool = false;
-	private var _dataPackage:DataPackageObject;
-	public var serverConnectTime(default, null):Float = 0;
-	public var localConnectTime(default, null):Float = 0;
-
-	private var _packetQueue:Array<PacketType> = [];
-	private var _msgMutex = new Mutex();
-
-	public var player_number(get, never):Int;
-	public var is_data_package_valid(get, never):Bool;
-	public var server_time(get, never):Float;
 
 	// [private] std::chrono::steady_clock::time_point localConnectTime;
 
@@ -121,14 +126,14 @@ class Client {
 	public function set_data_package_from_file(path:String) {
 		if (!FileSystem.exists(path))
 			return false;
-		set_data_package(Json.parse(File.getContent(path)));
+		set_data_package(HJson.parse(File.getContent(path)));
 		return true;
 	}
 
 	public function save_data_package(path:String) {
 		try {
 			var f = File.write(path, true);
-			f.writeString(Json.stringify(_dataPackage));
+			f.writeString(TJson.stringify(_dataPackage));
 			f.close();
 		} catch (_) {
 			return false;
@@ -228,20 +233,17 @@ class Client {
 		return out;
 	}
 
-	private inline function InternalSend(packet:Dynamic):Bool {
+	private inline function InternalSend(packet:OutgoingPacket):Bool {
 		#if debug
-		trace("> " + packet.cmd + ": " + Json.stringify(packet));
+		trace("> " + packet);
 		#end
-		_ws.send(Json.stringify([packet]));
+		_ws.send(TJson.stringify([packet]));
 		return true;
 	}
 
 	public function LocationChecks(locations:Array<Int>):Bool {
 		if (state == State.SLOT_CONNECTED) {
-			InternalSend({
-				cmd: "LocationChecks",
-				locations: locations
-			});
+			InternalSend(OutgoingPacket.LocationChecks(locations));
 		} else
 			for (i in locations)
 				_checkQueue.add(i);
@@ -251,10 +253,7 @@ class Client {
 
 	public function LocationScouts(locations:Array<Int>):Bool {
 		if (state == State.SLOT_CONNECTED) {
-			InternalSend({
-				cmd: "LocationScouts",
-				locations: locations
-			});
+			InternalSend(OutgoingPacket.LocationScouts(locations));
 		} else
 			for (i in locations)
 				_checkQueue.add(i);
@@ -264,16 +263,13 @@ class Client {
 
 	public function StatusUpdate(status:ClientStatus):Bool {
 		if (state == State.SLOT_CONNECTED) {
-			return InternalSend({
-				cmd: "StatusUpdate",
-				status: status
-			});
+			return InternalSend(OutgoingPacket.StatusUpdate(status));
 		}
 		_clientStatus = status;
 		return false;
 	}
 
-	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:Version):Bool {
+	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:NetworkVersion):Bool {
 		if (tags == null)
 			tags = [];
 		if (ver == null)
@@ -283,7 +279,7 @@ class Client {
 				build: 1,
 			};
 
-		var sendVer:Map<String, Dynamic> = [];
+		var sendVer = new DynamicAccess<Dynamic>();
 		sendVer.set("major", ver.major);
 		sendVer.set("minor", ver.minor);
 		sendVer.set("build", ver.build);
@@ -295,16 +291,15 @@ class Client {
 		#if debug
 		trace("Connecting slot...");
 		#end
-		var p:ConnectPacket = {
-			cmd: "Connect",
-			game: _game,
-			uuid: uuid,
-			name: name,
-			password: password,
-			version: sendVer,
-			items_handling: items_handling,
-			tags: tags
-		};
+		var p:OutgoingPacket = Connect(
+			password,
+			_game,
+			name,
+			uuid,
+			sendVer,
+			items_handling,
+			tags
+		);
 		return InternalSend(p);
 	}
 
@@ -325,18 +320,13 @@ class Client {
 	public function Sync():Bool {
 		if (state < State.SLOT_CONNECTED)
 			return false;
-		return InternalSend({
-			cmd: "Sync"
-		});
+		return InternalSend(OutgoingPacket.Sync);
 	}
 
-	public function GetDataPackage(exclude:Array<String>):Bool {
+	public function GetDataPackage(include:Array<String>):Bool {
 		if (state < State.SLOT_CONNECTED)
 			return false;
-		return InternalSend({
-			cmd: "GetDataPackage",
-			exclusions: exclude
-		});
+		return InternalSend(OutgoingPacket.GetDataPackage(include));
 	}
 
 	public function Bounce(data:Dynamic, games:Array<String>, slots:Array<Int>, tags:Array<String>):Bool {
@@ -360,10 +350,7 @@ class Client {
 	public function Say(text:String):Bool {
 		if (state < State.ROOM_INFO)
 			return false;
-		return InternalSend({
-			cmd: "Say",
-			text: text
-		});
+		return InternalSend(OutgoingPacket.Say(text));
 	}
 
 	public function poll() {
@@ -388,136 +375,116 @@ class Client {
 	public function process_queue() {
 		_msgMutex.acquire();
 		if (_packetQueue.length > 0)
-			// try {
-			for (packet in _packetQueue) {
-				switch (packet) {
-					case RoomInfo(p):
-						{
-							trace("RoomInfo:" + Json.stringify(p));
-							localConnectTime = Timer.stamp();
-							serverConnectTime = p.time;
-							seed = p.seed_name;
-							if (state < State.ROOM_INFO)
-								state = State.ROOM_INFO;
-							if (_hOnRoomInfo != null)
-								_hOnRoomInfo();
+			trace(_packetQueue.length + " packet(s) in queue; processing");
+		for (packet in _packetQueue) {
+			switch (packet) {
+				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions, seed_name, time):
+					localConnectTime = Timer.stamp();
+					serverConnectTime = time;
+					seed = seed_name;
+					if (state < State.ROOM_INFO)
+						state = State.ROOM_INFO;
+					if (_hOnRoomInfo != null)
+						_hOnRoomInfo();
 
-							dataPackageValid = true;
-							var exclude:Array<String> = [];
-							trace(p);
-							for (game => ver in p.datapackage_versions) {
-								try {
-									if (ver < 1) {
-										dataPackageValid = false;
-										continue;
-									}
-									if (_dataPackage.games[game] == null) {
-										dataPackageValid = false;
-										continue;
-									}
-									if (_dataPackage.games[game].version != ver) {
-										dataPackageValid = false;
-										continue;
-									}
-									exclude.push(game);
-								} catch (e) {
-									trace(e.message);
-									dataPackageValid = false;
-								}
+					dataPackageValid = true;
+					var include:Array<String> = [];
+					for (game => ver in datapackage_versions) {
+						try {
+							if (ver < 1) { // don't cache for version 0
+								include.push(game);
+								continue;
 							}
-							if (!dataPackageValid)
-								GetDataPackage(exclude);
-							#if debug
-							else
-								trace("DataPackage up to date");
-							#end
+							if (_dataPackage.games[game] == null) { // new game
+								include.push(game);
+								continue;
+							}
+							if (_dataPackage.games[game].version != ver) { // existing update
+								include.push(game);
+								continue;
+							}
+						} catch (e) {
+							trace(e.message);
+							include.push(game);
 						}
+					}
+					if (!(dataPackageValid = include.length > 0))
+						GetDataPackage(include);
+					#if debug
+					else
+						trace("DataPackage up to date");
+					#end
 
-					case ConnectionRefused(p):
-						if (_hOnSlotRefused != null)
-							_hOnSlotRefused(p.errors);
+				case ConnectionRefused(errors):
+					if (_hOnSlotRefused != null)
+						_hOnSlotRefused(errors);
 
-					case Connected(p):
-						state = State.SLOT_CONNECTED;
-						team = p.team;
-						slotnr = p.slot;
-						_players = [];
-						for (player in p.players)
-							_players.push({
-								team: player.team,
-								slot: player.slot,
-								alias: player.alias,
-								name: player.name
-							});
-						if (_hOnSlotConnected != null)
-							_hOnSlotConnected(p.slot_data);
-						// TODO: [upstream] store checked/missing locations
-						if (_hOnLocationChecked != null)
-							_hOnLocationChecked(p.checked_locations);
+				case Connected(team, slot, players, missing_locations, checked_locations, slot_data, slot_info):
+					state = State.SLOT_CONNECTED;
+					this.team = team;
+					slotnr = slot;
+					_players = [];
+					for (player in players)
+						_players.push({
+							team: player.team,
+							slot: player.slot,
+							alias: player.alias,
+							name: player.name
+						});
+					if (_hOnSlotConnected != null)
+						_hOnSlotConnected(slot_data);
+					// TODO: [upstream] store checked/missing locations
+					if (_hOnLocationChecked != null)
+						_hOnLocationChecked(checked_locations);
 
-					case ReceivedItems(p):
-						{
-							var index:Int = p.index;
-							for (item in p.items)
-								item.index = index++;
-							if (_hOnItemsReceived != null)
-								_hOnItemsReceived(p.items);
-						}
+				case ReceivedItems(index, items):
+					var index:Int = index;
+					for (item in items)
+						item.index = index++;
+					if (_hOnItemsReceived != null)
+						_hOnItemsReceived(items);
 
-					case LocationInfo(p):
-						{
-							if (_hOnLocationInfo != null)
-								_hOnLocationInfo(p.locations);
-						}
+				case LocationInfo(locations):
+					if (_hOnLocationInfo != null)
+						_hOnLocationInfo(locations);
 
-					case RoomUpdate(p):
-						// TODO: [upstream] store checked/missing locations
-						if (_hOnLocationChecked != null)
-							_hOnLocationChecked(p.checked_locations);
+				case RoomUpdate(hint_points, players, checked_locations, missing_locations):
+					// TODO: [upstream] store checked/missing locations
+					if (_hOnLocationChecked != null)
+						_hOnLocationChecked(checked_locations);
 
-					case DataPackage(p):
-						var data = _dataPackage;
-						if (data.games == null)
-							data.games = [];
-						for (game => gameData in p.data.games)
-							data.games[game] = gameData;
-						data.version = p.data.version;
-						dataPackageValid = false;
-						set_data_package(data);
-						dataPackageValid = true;
-						if (_hOnDataPackageChanged != null)
-							_hOnDataPackageChanged(_dataPackage);
+				case DataPackage(pdata):
+					var data = _dataPackage;
+					if (data.games == null)
+						data.games = [];
+					for (game => gameData in pdata.games)
+						data.games[game] = gameData;
+					data.version = pdata.version;
+					dataPackageValid = false;
+					set_data_package(data);
+					dataPackageValid = true;
+					if (_hOnDataPackageChanged != null)
+						_hOnDataPackageChanged(_dataPackage);
 
-					case Print(p):
-						if (_hOnPrint != null)
-							_hOnPrint(p.text);
+				case Print(text):
+					if (_hOnPrint != null)
+						_hOnPrint(text);
 
-					case PrintJSON(p):
-						if (_hOnPrintJson != null)
-							_hOnPrintJson(p.data, p.item, p.receiving);
+				case PrintJSON(data, receiving, item, found):
+					if (_hOnPrintJson != null)
+						_hOnPrintJson(data, item, receiving);
 
-					case Bounced(p):
-						if (_hOnBounced != null)
-							_hOnBounced(p.data);
+				case Bounced(games, slots, tags, data):
+					if (_hOnBounced != null)
+						_hOnBounced(data);
 
-					case _:
-						#if debug
-						trace("unhandled cmd");
-						#end
-				}
+				default:
+					#if debug
+					trace("unhandled cmd");
+					#end
 			}
+		}
 		_packetQueue = [];
-		// } catch (e) {
-		// 	#if debug
-		// 	for (item in e.stack) {
-		// 		trace((item.getName()));
-		// 	}
-		// 	trace(e.details());
-		// 	throw e;
-		// 	#else
-		// 	trace(e.message);
-		// 	#end
-		// }
 		_msgMutex.release();
 	}
 
@@ -576,59 +543,19 @@ class Client {
 		#end
 		switch (msg) {
 			case StrMessage(content):
-				{
-					var packets:Array<Dynamic> = Json.parse(content);
-					_msgMutex.acquire();
-					for (p in packets) {
-						#if debug
-						trace("Received packet " + p.cmd);
-						#end
-						var pStr:String = Json.stringify(p);
-						switch (p.cmd) {
-							case "RoomInfo":
-								_packetQueue.push(RoomInfo(new JsonParser<RoomInfoPacket>().fromJson(pStr)));
-							case "ConnectionRefused":
-								_packetQueue.push(ConnectionRefused(new JsonParser<ConnectionRefusedPacket>().fromJson(pStr)));
-							case "Connected":
-								var pp = new JsonParser<ConnectedPacketND>().fromJson(pStr);
-								_packetQueue.push(Connected({
-									cmd: "Connected",
-									team: pp.team,
-									slot: pp.slot,
-									players: pp.players,
-									missing_locations: pp.missing_locations,
-									checked_locations: pp.checked_locations,
-									slot_data: p.slot_data,
-									slot_info: pp.slot_info
-								}));
-							case "ReceivedItems":
-								_packetQueue.push(ReceivedItems(new JsonParser<ReceivedItemsPacket>().fromJson(pStr)));
-							case "LocationInfo":
-								_packetQueue.push(LocationInfo(new JsonParser<LocationInfoPacket>().fromJson(pStr)));
-							case "RoomUpdate":
-								_packetQueue.push(RoomUpdate(new JsonParser<RoomUpdatePacket>().fromJson(pStr)));
-							case "Print":
-								_packetQueue.push(Print(new JsonParser<PrintPacket>().fromJson(pStr)));
-							case "PrintJSON":
-								_packetQueue.push(PrintJSON(new JsonParser<PrintJsonPacket>().fromJson(pStr)));
-							case "DataPackage":
-								_packetQueue.push(DataPackage(new JsonParser<DataPackagePacket>().fromJson(pStr)));
-							case "Bounced":
-								_packetQueue.push(Bounced(p));
-							case "InvalidPacket":
-								trace("InvalidPacket received:" + pStr);
-							// TODO: Retrieved packets have Dynamics in maps; neither JSON library is suitable for these
-							// case "Retrieved":
-							// 	_packetQueue.push(Retrieved(new JsonParser<RetrievedPacket>().fromJson(pStr)));
-							case "SetReply":
-								_packetQueue.push(SetReply(p));
-							case _:
-								trace("Unrecognized packet type " + p.cmd);
-						}
-					}
-					_msgMutex.release();
+				_msgMutex.acquire();
+				try {
+					var newPackets:Array<IncomingPacket> = TJson.parse(content);
+					trace(newPackets);
+					for (newPacket in newPackets)
+						_packetQueue.push(newPacket);
+				} catch (e) {
+					trace("EXCEPTION: " + e);
 				}
-			case _:
+				// _packetQueue = _packetQueue.concat(ne);
+				_msgMutex.release();
+
+			default:
 		}
 	}
 

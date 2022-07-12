@@ -1,5 +1,8 @@
 package ap;
 
+import ap.Definitions.ClientStatus;
+import haxe.DynamicAccess;
+
 @:enum
 abstract Permission(Int) from Int to Int {
 	var PERM_DISABLED = 0;
@@ -61,7 +64,17 @@ typedef JSONMessagePart = {
 	var ?flags:ItemFlags;
 }
 
-typedef Version = {
+// TODO: figure out how to not have to include "class" through Tink library
+//@:json({"class": "Version"})
+// @:jsonStringify((ver:NetworkVersion) -> {
+// 	return {
+// 		major: ver.major,
+// 		minor: ver.minor,
+// 		build: ver.build,
+// 		"class": "Version"
+// 	};
+// })
+typedef NetworkVersion = {
 	var major:Int;
 	var minor:Int;
 	var build:Int;
@@ -85,165 +98,160 @@ typedef NetworkSlot = {
 	var ?group_members:Array<Int>;
 }
 
-typedef Packet = {
-	var cmd:String;
-}
-
 // Incoming packets
 
-typedef RoomInfoPacket = {
-	@:default("RoomInfo")
-	var cmd:String;
-	@:default([])
-	var tags:Array<String>;
-	@:default(false)
-	var password:Bool;
-	@:default([])
-	var permissions:Map<String, Permission>;
-	@:default(20)
-	var hint_cost:Int;
-	@:default(1)
-	var location_check_points:Int;
-	@:default([])
-	var players:Array<NetworkPlayer>;
-	@:default([])
-	var games:Array<String>;
-	@:default(0)
-	var datapackage_version:Int;
-	@:default([])
-	var datapackage_versions:Map<String, Int>;
-	@:default("")
-	var seed_name:String;
-	@:default(0)
-	var time:Float;
-}
+enum IncomingPacket {
+	@:json({cmd: "RoomInfo"})
+	RoomInfo(
+		// HACK: due to how NetworkVersion is sent
+		//version:NetworkVersion,
+		version:DynamicAccess<Dynamic>,
+		tags:Array<String>,
+		password:Bool,
+		permissions:DynamicAccess<Permission>,
+		hint_cost:Int,
+		location_check_points:Int,
+		games:Array<String>,
+		datapackage_version:Int,
+		datapackage_versions:DynamicAccess<Int>,
+		seed_name:String,
+		time:Float
+	);
 
-typedef ConnectionRefusedPacket = {
-	var cmd:String;
-	var errors:Array<String>;
-}
+	@:json({cmd: "ConnectionRefused"})
+	ConnectionRefused(
+		errors:Array<String>
+	);
 
-typedef ConnectedPacket = {
-	@:default("Connected")
-	var cmd:String;
-	var team:Int;
-	var slot:Int;
-	@:default([])
-	var players:Array<NetworkPlayer>;
-	@:default([])
-	var missing_locations:Array<Int>;
-	@:default([])
-	var checked_locations:Array<Int>;
-	@:default(null)
-	var slot_data:Dynamic;
-	@:default([])
-	var slot_info:Map<Int, NetworkSlot>;
-}
+	@:json({cmd: "Connected"})
+	Connected(
+		team:Int,
+		slot:Int,
+		players:Array<NetworkPlayer>,
+		missing_locations:Array<Int>,
+		checked_locations:Array<Int>,
+		slot_data:Null<Dynamic>,
+		slot_info:DynamicAccess<NetworkSlot>
+	);
 
-typedef ConnectedPacketND = {
-	@:default("Connected")
-	var cmd:String;
-	var team:Int;
-	var slot:Int;
-	@:default([])
-	var players:Array<NetworkPlayer>;
-	@:default([])
-	var missing_locations:Array<Int>;
-	@:default([])
-	var checked_locations:Array<Int>;
-	@:default([])
-	var slot_info:Map<Int, NetworkSlot>;
-}
+	@:json({cmd: "ReceivedItems"})
+	ReceivedItems(
+		index:Int,
+		items:Array<NetworkItem>
+	);
 
-typedef ReceivedItemsPacket = {
-	var cmd:String;
-	var index:Int;
-	var items:Array<NetworkItem>;
-}
+	@:json({cmd: "LocationInfo"})
+	LocationInfo(
+		locations:Array<NetworkItem>
+	);
 
-typedef LocationInfoPacket = {
-	var cmd:String;
-	var locations:Array<NetworkItem>;
-}
+	@:json({cmd: "RoomUpdate"})
+	RoomUpdate(
+		hint_points:Int,
+		players:Array<NetworkPlayer>,
+		checked_locations:Array<Int>,
+		missing_locations:Array<Int>
+	);
 
-typedef RoomUpdatePacket = {
-	var cmd:String;
-	var hint_points:Int;
-	var players:Array<NetworkPlayer>;
-	var checked_locations:Array<Int>;
-	var missing_locations:Array<Int>;
-}
+	@:json({cmd: "Print"})
+	Print(
+		text:String
+	);
 
-typedef PrintPacket = {
-	var cmd:String;
-	var text:String;
-}
+	@:json({cmd: "PrintJSON"})
+	PrintJSON(
+		data:Array<JSONMessagePart>,
+		receiving:Int,
+		item:NetworkItem,
+		found:Bool
+		);
 
-typedef PrintJsonPacket = {
-	var cmd:String;
-	var data:Array<JSONMessagePart>;
-	var receiving:Int;
-	var item:NetworkItem;
-	var found:Bool;
-}
+	@:json({cmd: "DataPackage"})
+	DataPackage(
+		data:DataPackageObject
+	);
 
-typedef DataPackagePacket = {
-	var cmd:String;
-	var data:DataPackageObject;
-}
+	@:json({cmd: "Bounced"})
+	Bounced(
+		games:Array<String>,
+		slots:Array<Int>,
+		tags:Array<String>,
+		data:Dynamic
+	);
 
-typedef BouncedPacket = {
-	var cmd:String;
-	var games:Array<String>;
-	var slots:Array<Int>;
-	var tags:Array<String>;
-	var data:Dynamic;
-}
+	@:json({cmd: "Retrieved"})
+	Retrieved(
+		keys:DynamicAccess<Dynamic>
+	);
 
-typedef RetrievedPacket = {
-	var cmd:String;
-	var keys:Map<String, Dynamic>;
-}
+	@:json({cmd: "SetReply"})
+	SetReply(
+		key:String,
+		value:Dynamic,
+		original_value:Dynamic
+	);
 
-typedef SetReplyPacket = {
-	var cmd:String;
-	var key:String;
-	var value:Dynamic;
-	var original_value:Dynamic;
-}
+	@:json({cmd: "InvalidPacket"})
+	InvalidPacket(
+		type:String,
+		original_cmd:Null<String>,
+		text:String
+	);
 
-enum PacketType {
-	RoomInfo(p:RoomInfoPacket);
-	ConnectionRefused(p:ConnectionRefusedPacket);
-	Connected(p:ConnectedPacket);
-	ReceivedItems(p:ReceivedItemsPacket);
-	LocationInfo(p:LocationInfoPacket);
-	RoomUpdate(p:RoomUpdatePacket);
-	Print(p:PrintPacket);
-	PrintJSON(p:PrintJsonPacket);
-	DataPackage(p:DataPackagePacket);
-	Bounced(p:BouncedPacket);
-	Retrieved(p:RetrievedPacket);
-	SetReply(p:SetReplyPacket);
+	Unknown(
+		cmd:String
+	);
 }
 
 // Outgoing packets
 
-typedef ConnectPacket = {
-	var cmd:String;
-	var password:Null<String>;
-	var game:String;
-	var name:String;
-	var uuid:String;
-	var version:Map<String, Dynamic>;
-	var items_handling:Int;
-	var tags:Array<String>;
-}
+enum OutgoingPacket {
+	@:json({cmd: "Connect"})
+	Connect(
+		password:Null<String>,
+		game:String,
+		name:String,
+		uuid:String,
+		// HACK: due to how NetworkVersion is sent
+		//version:NetworkVersion,
+		version:DynamicAccess<Dynamic>,
+		items_handling:Int,
+		tags:Array<String>
+	);
 
-typedef ConnectUpdatePacket = {
-	var cmd:String;
-	var ?items_handling:Int;
-	var ?tags:Array<String>;
+	@:json({cmd: "ConnectUpdate"})
+	ConnectUpdate(
+		items_handling:Null<Int>,
+		tags:Null<Array<String>>
+	);
+
+	@:json({cmd: "LocationChecks"})
+	LocationChecks(
+		locations:Array<Int>
+	);
+
+	@:json({cmd: "LocationScouts"})
+	LocationScouts(
+		locations:Array<Int>
+	);
+
+	@:json({cmd: "StatusUpdate"})
+	StatusUpdate(
+		status:ClientStatus
+	);
+
+	@:json({cmd: "Sync"})
+	Sync;
+
+	@:json({cmd: "GetDataPackage"})
+	GetDataPackage(
+		include:Array<String>
+	);
+
+	@:json({cmd: "Say"})
+	Say(
+		text:String
+	);
 }
 
 // Bounce packets
