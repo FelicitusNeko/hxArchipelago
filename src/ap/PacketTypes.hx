@@ -81,13 +81,13 @@ typedef NetworkVersion = {
 }
 
 typedef GameData = {
-	var item_name_to_id:Map<String, Int>;
-	var location_name_to_id:Map<String, Int>;
+	var item_name_to_id:DynamicAccess<Int>;
+	var location_name_to_id:DynamicAccess<Int>;
 	var version:Int;
 }
 
 typedef DataPackageObject = {
-	var games:Map<String, GameData>;
+	var games:DynamicAccess<GameData>;
 	var version:Int;
 }
 
