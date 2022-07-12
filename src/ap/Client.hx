@@ -1,27 +1,28 @@
 package ap;
 
-import haxe.DynamicAccess;
 import ap.Definitions;
 import ap.PacketTypes;
+import haxe.DynamicAccess;
 import haxe.exceptions.NotImplementedException;
 import haxe.Timer;
-import haxe.Json as HJson;
 import helder.Set;
 import hx.ws.Types.MessageType;
 import hx.ws.WebSocket;
+import tink.Json as TJson;
 #if sys
 import sys.FileSystem;
 import sys.io.File;
-#end
 import sys.thread.Mutex;
-import tink.Json as TJson;
+#else
+import ap.PseudoMutex;
+#end
 
 using StringTools;
 using ap.Bitsets;
 
 class Client {
 	public var uri(default, null):String;
-	public var _game(default, null):String;
+	public var game(default, null):String;
 	public var uuid(default, null):String;
 
 	private var _ws:WebSocket;
@@ -29,13 +30,13 @@ class Client {
 	private var _socketReconnectInterval:Float = 1.5;
 	private var _checkQueue = new Set<Int>();
 	private var _scoutQueue = new Set<Int>();
-	private var _clientStatus:ClientStatus = ClientStatus.UNKNOWN;
 
 	private var _players:Array<NetworkPlayer> = [];
 	private var _locations:Map<Int, String> = [];
 	private var _items:Map<Int, String> = [];
 	private var _dataPackage:DataPackageObject;
 
+	public var clientStatus(default, set):ClientStatus = ClientStatus.UNKNOWN;
 	public var state(default, null):State = State.DISCONNECTED;
 	public var seed(default, null):String = "";
 	public var slot(default, null):String = "";
@@ -45,12 +46,14 @@ class Client {
 	public var serverConnectTime(default, null):Float = 0;
 	public var localConnectTime(default, null):Float = 0;
 
-	public var player_number(get, never):Int;
-	public var is_data_package_valid(get, never):Bool;
 	public var server_time(get, never):Float;
 
 	private var _packetQueue:Array<IncomingPacket> = [];
+	#if sys
 	private var _msgMutex = new Mutex();
+	#else
+	private var _msgMutex = new PseudoMutex();
+	#end
 
 	public var _hOnSocketConnected(null, default):Void->Void = null;
 	public var _hOnSocketDisconnected(null, default):Void->Void = null;
@@ -92,17 +95,15 @@ class Client {
 		}
 
 		this.uuid = uuid;
-		_game = game;
-		_dataPackage = {version: 1, games: new Map<String, GameData>()};
+		this.game = game;
+		_dataPackage = {version: 1, games: new DynamicAccess<GameData>()};
 		connect_socket();
 	}
 
-	public function get_player_number():Int {
-		return slotnr;
-	}
-
-	public function get_is_data_package_valid():Bool {
-		return dataPackageValid;
+	public function set_clientStatus(status:ClientStatus):ClientStatus {
+		if (state == State.SLOT_CONNECTED)
+			InternalSend(OutgoingPacket.StatusUpdate(status));
+		return clientStatus = status;
 	}
 
 	public function get_server_time():Float {
@@ -126,7 +127,7 @@ class Client {
 	public function set_data_package_from_file(path:String) {
 		if (!FileSystem.exists(path))
 			return false;
-		set_data_package(HJson.parse(File.getContent(path)));
+		set_data_package(TJson.parse(File.getContent(path)));
 		return true;
 	}
 
@@ -165,8 +166,8 @@ class Client {
 		Return `null` when undefined
 	**/
 	public function get_location_id(name:String):Null<Int> {
-		if (_dataPackage.games.exists(_game) && _dataPackage.games[_game].location_name_to_id.exists(name))
-			return _dataPackage.games[_game].location_name_to_id[name];
+		if (_dataPackage.games.exists(game) && _dataPackage.games[game].location_name_to_id.exists(name))
+			return _dataPackage.games[game].location_name_to_id[name];
 		return null;
 	}
 
@@ -261,14 +262,6 @@ class Client {
 		return true;
 	}
 
-	public function StatusUpdate(status:ClientStatus):Bool {
-		if (state == State.SLOT_CONNECTED) {
-			return InternalSend(OutgoingPacket.StatusUpdate(status));
-		}
-		_clientStatus = status;
-		return false;
-	}
-
 	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:NetworkVersion):Bool {
 		if (tags == null)
 			tags = [];
@@ -291,15 +284,7 @@ class Client {
 		#if debug
 		trace("Connecting slot...");
 		#end
-		var p:OutgoingPacket = Connect(
-			password,
-			_game,
-			name,
-			uuid,
-			sendVer,
-			items_handling,
-			tags
-		);
+		var p:OutgoingPacket = Connect(password, game, name, uuid, sendVer, items_handling, tags);
 		return InternalSend(p);
 	}
 
@@ -373,12 +358,17 @@ class Client {
 	}
 
 	public function process_queue() {
+		#if sys
 		_msgMutex.acquire();
+		#else
+		_msgMutex.acquire("process_queue");
+		#end
 		if (_packetQueue.length > 0)
 			trace(_packetQueue.length + " packet(s) in queue; processing");
 		for (packet in _packetQueue) {
 			switch (packet) {
-				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions, seed_name, time):
+				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions,
+					seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
 					seed = seed_name;
@@ -454,9 +444,10 @@ class Client {
 						_hOnLocationChecked(checked_locations);
 
 				case DataPackage(pdata):
-					var data = _dataPackage;
-					if (data.games == null)
-						data.games = [];
+					var data:DataPackageObject = {
+						games: _dataPackage.games.copy(),
+						version: _dataPackage.version
+					};
 					for (game => gameData in pdata.games)
 						data.games[game] = gameData;
 					data.version = pdata.version;
@@ -485,7 +476,11 @@ class Client {
 			}
 		}
 		_packetQueue = [];
+		#if sys
 		_msgMutex.release();
+		#else
+		_msgMutex.release("process_queue");
+		#end
 	}
 
 	public function reset() {
@@ -499,7 +494,7 @@ class Client {
 		team = -1;
 		slotnr = -1;
 		_players = [];
-		_clientStatus = ClientStatus.UNKNOWN;
+		clientStatus = ClientStatus.UNKNOWN;
 	}
 
 	private inline function log(msg:String) {
@@ -543,7 +538,11 @@ class Client {
 		#end
 		switch (msg) {
 			case StrMessage(content):
+				#if sys
 				_msgMutex.acquire();
+				#else
+				_msgMutex.acquire("onmessage");
+				#end
 				try {
 					var newPackets:Array<IncomingPacket> = TJson.parse(content);
 					trace(newPackets);
@@ -553,7 +552,11 @@ class Client {
 					trace("EXCEPTION: " + e);
 				}
 				// _packetQueue = _packetQueue.concat(ne);
+				#if sys
 				_msgMutex.release();
+				#else
+				_msgMutex.release("onmessage");
+				#end
 
 			default:
 		}
