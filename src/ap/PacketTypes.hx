@@ -147,10 +147,10 @@ enum IncomingPacket {
 
 	@:json({cmd: "RoomUpdate"})
 	RoomUpdate(
-		hint_points:Int,
-		players:Array<NetworkPlayer>,
-		checked_locations:Array<Int>,
-		missing_locations:Array<Int>
+		hint_points:Null<Int>,
+		players:Null<Array<NetworkPlayer>>,
+		checked_locations:Null<Array<Int>>,
+		missing_locations:Null<Array<Int>>
 	);
 
 	@:json({cmd: "Print"})
