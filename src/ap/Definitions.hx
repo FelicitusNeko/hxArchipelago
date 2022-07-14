@@ -1,11 +1,17 @@
 package ap;
 
+/** The current connection state of the Archipelago client. **/
 @:enum
 abstract State(Int) {
+	/** The client is not connected. **/
 	var DISCONNECTED = 0;
+	/** The client is in the process of connecting. **/
 	var SOCKET_CONNECTING = 1;
+	/** The client is connected to the server, but has not authenticated yet. **/
 	var SOCKET_CONNECTED = 2;
+	/** The client has received a RoomInfo packet, but has not authenticated yet. **/
 	var ROOM_INFO = 3;
+	/** The client has connected and authenticated to the server. **/
 	var SLOT_CONNECTED = 4;
 
 	@:op(A < B) static function lt(a:State, b:State):Bool;
@@ -21,16 +27,12 @@ abstract State(Int) {
 	@:op(A != B) static function ne(a:State, b:State):Bool;
 }
 
-@:enum
-abstract ClientStatus(Int) {
-	var UNKNOWN = 0;
-	var READY = 10;
-	var PLAYING = 20;
-	var GOAL = 30;
-}
-
+/** Indicates how to render the JSON packet(s) being processed. **/
 enum RenderFormat {
+	/** Render the packets as text only. **/
 	TEXT;
+	/** Render the packets as HTML. Not currently implemented. **/
 	HTML;
+	/** Render the packets as ANSI text. **/
 	ANSI;
 }
