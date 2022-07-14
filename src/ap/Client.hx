@@ -630,6 +630,9 @@ class Client {
 						_hOnPrintJson(data, item, receiving);
 
 				case Bounced(games, slots, tags, data):
+					if (games != null && !games.contains(game)) break;
+					if (slots != null && !slots.contains(slotnr)) break;
+					// TODO: check to make sure tag matches
 					if (_hOnBounced != null)
 						_hOnBounced(data);
 
