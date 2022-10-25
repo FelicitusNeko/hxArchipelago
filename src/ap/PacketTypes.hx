@@ -155,6 +155,7 @@ typedef GameData = {
 	- The IDs from the game "Archipelago" may be used in any other game. Especially Location ID -1: Cheat Console and -2: Server (typically Remote Start Inventory)
 **/
 typedef DataPackageObject = {
+	var version:Int;
 	/** Mapping of all Games and their respective data **/
 	var games:DynamicAccess<GameData>;
 }
@@ -411,7 +412,7 @@ enum IncomingPacket {
 	);
 
 	/**
-		Sent to clients as a response the a Get package
+		Sent to clients as a response to a Get package
 
 		Additional arguments added to the Get package that triggered this Retrieved will also be passed along.
 		@param keys A key-value collection containing all the values for the keys requested in the Get package.
@@ -575,14 +576,15 @@ enum OutgoingPacket {
 		Used to write data to the server's data storage, that data can then be shared across worlds or just saved for later.
 		Values for keys in the data storage can be retrieved with a Get package, or monitored with a SetNotify package.
 		@param key The key to manipulate.
-		@param default The default value to use in case the key has no value on the server. Not currently implemented due to Haxe limitations.
+		@param dflt The default value to use in case the key has no value on the server.
 		@param want_reply If set, the server will send a SetReply response back to the client.
 		@param operations Operations to apply to the value, multiple operations can be present and they will be executed in order of appearance.
 	**/
+	// TODO: handle changing "dflt" to "default"
 	@:json({cmd: "Set"})
 	Set(
 		key:String,
-		//default:Dynamic,
+		dflt:Dynamic,
 		want_reply:Bool,
 		operations:Array<DataStorageOperation>
 	);
