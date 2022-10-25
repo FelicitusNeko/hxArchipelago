@@ -25,10 +25,13 @@ abstract SlotType(Int) from Int to Int {
 abstract ItemFlags(Int) from Int to Int {
 	/** Nothing special about this item **/
 	var FLAG_NONE = 0;
+
 	/** If set, indicates the item can unlock logical advancement **/
 	var FLAG_ADVANCEMENT = 1 << 0;
+
 	/** If set, indicates the item is important but not in a way that unlocks advancement **/
 	var FLAG_NEVER_EXCLUDE = 1 << 1;
+
 	/** If set, indicates the item is a trap **/
 	var FLAG_TRAP = 1 << 2;
 }
@@ -38,20 +41,28 @@ abstract ItemFlags(Int) from Int to Int {
 abstract JSONType(String) {
 	/** Regular text content. Is the default type and as such may be omitted. **/
 	var JTYPE_TEXT = "text";
+
 	/** player ID of someone on your team, should be resolved to Player Name **/
 	var JTYPE_PLAYER_ID = "player_id";
+
 	/** Player Name, could be a player within a multiplayer game or from another team, not ID resolvable **/
 	var JTYPE_PLAYER_NAME = "player_name";
+
 	/** Item ID, should be resolved to Item Name **/
 	var JTYPE_ITEM_ID = "item_id";
+
 	/** Item Name, not currently used over network, but supported by reference Clients. **/
 	var JTYPE_ITEM_NAME = "item_name";
+
 	/** Location ID, should be resolved to Location Name **/
 	var JTYPE_LOCATION_ID = "location_id";
+
 	/** Location Name, not currently used over network, but supported by reference Clients. **/
 	var JTYPE_LOCATION_NAME = "location_name";
+
 	/** Entrance Name. No ID mapping exists. **/
 	var JTYPE_ENTRANCE_NAME = "entrance_name";
+
 	/** Regular text that should be colored. Only `type` that will contain `color` data.**/
 	var JTYPE_COLOR = "color";
 }
@@ -69,12 +80,16 @@ abstract ClientStatus(Int) {
 typedef NetworkItem = {
 	/** The item id of the item. Item ids are in the range of ±2⁵³-1. **/
 	var item:Int;
+
 	/** The location id of the item inside the world. Location ids are in the range of ±2⁵³-1. **/
 	var location:Int;
+
 	/** The player slot of the world the item is located in, except when inside an LocationInfo Packet then it will be the slot of the player to receive the item **/
 	var player:Int;
+
 	/** Flags to denote the item's importance. **/
 	var flags:ItemFlags;
+
 	/** The index number of the item. Not filled in by the AP server, but added by hxArchipelago for convenience. **/
 	var ?index:Int;
 }
@@ -83,10 +98,13 @@ typedef NetworkItem = {
 typedef NetworkPlayer = {
 	/** The team number the player is in. **/
 	var team:Int;
+
 	/** The slot number for the player. **/
 	var slot:Int;
+
 	/** The player's name in current time. **/
 	var alias:String;
+
 	/** The original name used when the session was generated. This is typically distinct in games which require baking names into ROMs or for async games. **/
 	var name:String;
 }
@@ -100,22 +118,26 @@ typedef JSONMessagePart = {
 		How these types are displayed in Archipelago's ALttP client is not the end-all be-all. Other clients may choose to interpret and display these messages differently.
 	**/
 	var ?type:JSONType;
+
 	/**
 		Used to denote a console color to display the message part with and is only send if the `type` is `color`. This is limited to console colors due to backwards
 		compatibility needs with games such as ALttP. Although background colors as well as foreground colors are listed, only one may be applied to a `JSONMessagePart`
 		at a time.
 	**/
 	var ?color:String;
+
 	/** The content of the message part to be displayed. **/
 	var ?text:String;
+
 	/** Marks owning player id for location/item **/
 	var ?found:Bool;
+
 	/** Contains the `NetworkItem` flags that belong to the item **/
 	var ?flags:ItemFlags;
 }
 
 // TODO: figure out how to not have to include "class" through Tink library
-//@:json({"class": "Version"})
+// @:json({"class": "Version"})
 // @:jsonStringify((ver:NetworkVersion) -> {
 // 	return {
 // 		major: ver.major,
@@ -124,19 +146,69 @@ typedef JSONMessagePart = {
 // 		"class": "Version"
 // 	};
 // })
+
 /** An object representing software versioning. Used in the Connect packet to allow the client to inform the server of the Archipelago version it supports. **/
-typedef NetworkVersion = {
-	var major:Int;
-	var minor:Int;
-	var build:Int;
+// typedef NetworkVersion = {
+// 	var major:Int;
+// 	var minor:Int;
+// 	var build:Int;
+// }
+
+@:jsonStringify((ver:NetworkVersion) -> {
+	return {
+		major: ver.major,
+		minor: ver.minor,
+		build: ver.build,
+		"class": "Version"
+	};
+})
+@:jsonParse((json) -> {
+	return [json.major, json.minor, json.build];
+})
+abstract NetworkVersion(Array<Int>) to Array<Int> {
+	public inline function new(version:Array<Int>) {
+		while (version.length > 3)
+			version.pop();
+		while (version.length < 3)
+			version.push(0);
+		this = version;
+	}
+
+	@:from
+	static public inline function fromArrayInt(version:Array<Int>)
+		return new NetworkVersion(version);
+
+	public var major(get, set):Int;
+	public var minor(get, set):Int;
+	public var build(get, set):Int;
+
+	inline function get_major()
+		return this[0];
+
+	inline function set_major(major:Int)
+		return this[0] = major;
+
+	inline function get_minor()
+		return this[1];
+
+	inline function set_minor(minor:Int)
+		return this[1] = minor;
+
+	inline function get_build()
+		return this[2];
+
+	inline function set_build(build:Int)
+		return this[2] = build;
 }
 
 /** GameData is a dict but contains these keys and values. It's broken out into another "type" for ease of documentation. **/
 typedef GameData = {
 	/** Mapping of all item names to their respective ID. **/
 	var item_name_to_id:DynamicAccess<Int>;
+
 	/** Mapping of all location names to their respective ID. **/
 	var location_name_to_id:DynamicAccess<Int>;
+
 	/** Version number of this game's data **/
 	var version:Int;
 }
@@ -248,30 +320,18 @@ enum IncomingPacket {
 		@param time Unix time stamp of "now". Send for time synchronization if wanted for things like the DeathLink Bounce.
 	**/
 	@:json({cmd: "RoomInfo"})
-	RoomInfo(
-		// HACK: due to how NetworkVersion is sent
-		//version:NetworkVersion,
-		version:DynamicAccess<Dynamic>,
-		tags:Array<String>,
-		password:Bool,
-		permissions:DynamicAccess<Permission>,
-		hint_cost:Int,
-		location_check_points:Int,
-		games:Array<String>,
-		datapackage_version:Int,
-		datapackage_versions:DynamicAccess<Int>,
-		seed_name:String,
-		time:Float
-	);
+	RoomInfo( // HACK: due to how NetworkVersion is sent
+		version:NetworkVersion,
+		// version:DynamicAccess<Dynamic>,
+		tags:Array<String>, password:Bool, permissions:DynamicAccess<Permission>, hint_cost:Int, location_check_points:Int, games:Array<String>,
+		datapackage_version:Int, datapackage_versions:DynamicAccess<Int>, seed_name:String, time:Float);
 
 	/**
 		Sent to clients when the server refuses connection. This is sent during the initial connection handshake.
 		@param errors Optional. When provided, should contain any one of: `InvalidSlot`, `InvalidGame`, `IncompatibleVersion`, `InvalidPassword`, or `InvalidItemsHandling`.
 	**/
 	@:json({cmd: "ConnectionRefused"})
-	ConnectionRefused(
-		?errors:Array<String>
-	);
+	ConnectionRefused(?errors:Array<String>);
 
 	/**
 		Sent to clients when the connection handshake is successfully completed.
@@ -285,15 +345,8 @@ enum IncomingPacket {
 		@see NetworkPlayer
 	**/
 	@:json({cmd: "Connected"})
-	Connected(
-		team:Int,
-		slot:Int,
-		players:Array<NetworkPlayer>,
-		missing_locations:Array<Int>,
-		checked_locations:Array<Int>,
-		slot_data:Null<Dynamic>,
-		slot_info:DynamicAccess<NetworkSlot>
-	);
+	Connected(team:Int, slot:Int, players:Array<NetworkPlayer>, missing_locations:Array<Int>, checked_locations:Array<Int>, slot_data:Null<Dynamic>,
+		slot_info:DynamicAccess<NetworkSlot>);
 
 	/**
 		Sent to clients when they receive an item.
@@ -301,19 +354,14 @@ enum IncomingPacket {
 		@param items The items which the client is receiving.
 	**/
 	@:json({cmd: "ReceivedItems"})
-	ReceivedItems(
-		index:Int,
-		items:Array<NetworkItem>
-	);
+	ReceivedItems(index:Int, items:Array<NetworkItem>);
 
 	/**
 		Sent to clients to acknowledge a received LocationScouts packet and responds with the item in the location(s) being scouted.
 		@param items Contains list of item(s) in the location(s) scouted.
 	**/
 	@:json({cmd: "LocationInfo"})
-	LocationInfo(
-		locations:Array<NetworkItem>
-	);
+	LocationInfo(locations:Array<NetworkItem>);
 
 	/**
 		Sent when there is a need to update information about the present game session. Generally useful for async games.
@@ -339,33 +387,17 @@ enum IncomingPacket {
 		@param missing_locations Should never be sent as an update, if needed is the inverse of `checked_locations`.
 	**/
 	@:json({cmd: "RoomUpdate"})
-	RoomUpdate(
-		version:Null<DynamicAccess<Dynamic>>,
-		tags:Null<Array<String>>,
-		password:Null<Bool>,
-		permissions:Null<DynamicAccess<Permission>>,
-		hint_cost:Null<Int>,
-		location_check_points:Null<Int>,
-		games:Null<Array<String>>,
-		datapackage_version:Null<Int>,
-		datapackage_versions:Null<DynamicAccess<Int>>,
-		seed_name:Null<String>,
-		time:Null<Float>,
-
-		hint_points:Null<Int>,
-		players:Null<Array<NetworkPlayer>>,
-		checked_locations:Null<Array<Int>>,
-		missing_locations:Null<Array<Int>>
-	);
+	RoomUpdate(version:Null<DynamicAccess<Dynamic>>, tags:Null<Array<String>>, password:Null<Bool>, permissions:Null<DynamicAccess<Permission>>,
+		hint_cost:Null<Int>, location_check_points:Null<Int>, games:Null<Array<String>>, datapackage_version:Null<Int>,
+		datapackage_versions:Null<DynamicAccess<Int>>, seed_name:Null<String>, time:Null<Float>, hint_points:Null<Int>, players:Null<Array<NetworkPlayer>>,
+		checked_locations:Null<Array<Int>>, missing_locations:Null<Array<Int>>);
 
 	/**
 		Sent to clients purely to display a message to the player.
 		@param text Message to display to player.
 	**/
 	@:json({cmd: "Print"})
-	Print(
-		text:String
-	);
+	Print(text:String);
 
 	/**
 		Sent to clients purely to display a message to the player. This packet differs from Print in that the data being sent with this packet
@@ -377,13 +409,7 @@ enum IncomingPacket {
 		@param found Is present if type is Hint, denotes whether the location hinted for was checked.
 	**/
 	@:json({cmd: "PrintJSON"})
-	PrintJSON(
-		data:Array<JSONMessagePart>,
-		type:Null<String>,
-		receiving:Null<Int>,
-		item:Null<NetworkItem>,
-		found:Null<Bool>
-	);
+	PrintJSON(data:Array<JSONMessagePart>, type:Null<String>, receiving:Null<Int>, item:Null<NetworkItem>, found:Null<Bool>);
 
 	/**
 		Sent to clients to provide what is known as a 'data package' which contains information to enable a client to most easily communicate
@@ -391,9 +417,7 @@ enum IncomingPacket {
 		@param data The data package as a JSON object.
 	**/
 	@:json({cmd: "DataPackage"})
-	DataPackage(
-		data:DataPackageObject
-	);
+	DataPackage(data:DataPackageObject);
 
 	/**
 		Sent to clients after a client requested this message be sent to them, more info in the Bounce package.
@@ -403,12 +427,7 @@ enum IncomingPacket {
 		@param data The data in the Bounce package copied
 	**/
 	@:json({cmd: "Bounced"})
-	Bounced(
-		games:Null<Array<String>>,
-		slots:Null<Array<Int>>,
-		tags:Null<Array<String>>,
-		data:Dynamic
-	);
+	Bounced(games:Null<Array<String>>, slots:Null<Array<Int>>, tags:Null<Array<String>>, data:Dynamic);
 
 	/**
 		Sent to clients as a response the a Get package
@@ -417,9 +436,7 @@ enum IncomingPacket {
 		@param keys A key-value collection containing all the values for the keys requested in the Get package.
 	**/
 	@:json({cmd: "Retrieved"})
-	Retrieved(
-		keys:DynamicAccess<Dynamic>
-	);
+	Retrieved(keys:DynamicAccess<Dynamic>);
 
 	/**
 		Sent to clients in response to a Set package if `want_reply` was set to true, or if the client has registered to receive updates
@@ -429,24 +446,14 @@ enum IncomingPacket {
 		@param original_value The value the key had before it was updated.
 	**/
 	@:json({cmd: "SetReply"})
-	SetReply(
-		key:String,
-		value:Dynamic,
-		original_value:Dynamic
-	);
+	SetReply(key:String, value:Dynamic, original_value:Dynamic);
 
 	/** Sent to clients if the server caught a problem with a packet. This only occurs for errors that are explicitly checked for. **/
 	@:json({cmd: "InvalidPacket"})
-	InvalidPacket(
-		type:String,
-		original_cmd:Null<String>,
-		text:String
-	);
+	InvalidPacket(type:String, original_cmd:Null<String>, text:String);
 
 	/** Catchall for unrecognized incoming packets. **/
-	Unknown(
-		cmd:String
-	);
+	Unknown(cmd:String);
 }
 
 // Outgoing packets
@@ -470,11 +477,10 @@ enum OutgoingPacket {
 		name:String,
 		uuid:String,
 		// HACK: due to how NetworkVersion is sent
-		//version:NetworkVersion,
-		version:DynamicAccess<Dynamic>,
+		version:NetworkVersion,
+		///version:DynamicAccess<Dynamic>,
 		items_handling:Int,
-		tags:Array<String>
-	);
+		tags:Array<String>);
 
 	/**
 		Update arguments from the Connect package, currently only updating tags and `items_handling` is supported.
@@ -482,10 +488,7 @@ enum OutgoingPacket {
 		@param tags Denotes special features or capabilities that the sender is capable of.
 	**/
 	@:json({cmd: "ConnectUpdate"})
-	ConnectUpdate(
-		items_handling:Null<Int>,
-		tags:Null<Array<String>>
-	);
+	ConnectUpdate(items_handling:Null<Int>, tags:Null<Array<String>>);
 
 	/** Sent to server to request a ReceivedItems packet to synchronize items. **/
 	@:json({cmd: "Sync"})
@@ -497,9 +500,7 @@ enum OutgoingPacket {
 			duplicates do not cause issues with the Archipelago server.
 	**/
 	@:json({cmd: "LocationChecks"})
-	LocationChecks(
-		locations:Array<Int>
-	);
+	LocationChecks(locations:Array<Int>);
 
 	/**
 		Sent to the server to inform it of locations the client has seen, but not checked. Useful in cases in which the item may appear in the game world,
@@ -510,10 +511,7 @@ enum OutgoingPacket {
 			If 2 only new hints are broadcast, however this does not remove them from the LocationInfo reply.
 	**/
 	@:json({cmd: "LocationScouts"})
-	LocationScouts(
-		locations:Array<Int>,
-		create_as_hint:Int
-	);
+	LocationScouts(locations:Array<Int>, create_as_hint:Int);
 
 	/**
 		Sent to the server to update on the sender's status. Examples include readiness or goal completion. (Example: defeated Ganon in A Link to the Past)
@@ -521,27 +519,21 @@ enum OutgoingPacket {
 		@see ClientStatus
 	**/
 	@:json({cmd: "StatusUpdate"})
-	StatusUpdate(
-		status:ClientStatus
-	);
+	StatusUpdate(status:ClientStatus);
 
 	/**
 		Basic chat command which sends text to the server to be distributed to other clients.
 		@param text Text to send to others.
 	**/
 	@:json({cmd: "Say"})
-	Say(
-		text:String
-	);
+	Say(text:String);
 
 	/**
 		Requests the data package from the server. Does not require client authentication.
 		@param include Optional. If specified, will only send back the specified data. Such as, `["Factorio"]` → Datapackage with only Factorio data.
 	**/
 	@:json({cmd: "GetDataPackage"})
-	GetDataPackage(
-		include:Null<Array<String>>
-	);
+	GetDataPackage(include:Null<Array<String>>);
 
 	/**
 		Send this message to the server, tell it which clients should receive the message and the server will forward the message to all those targets
@@ -552,12 +544,7 @@ enum OutgoingPacket {
 		@param data Any data you want to send
 	**/
 	@:json({cmd: "Bounce"})
-	Bounce(
-		games:Null<Array<String>>,
-		slots:Null<Array<Int>>,
-		tags:Null<Array<String>>,
-		data:Dynamic
-	);
+	Bounce(games:Null<Array<String>>, slots:Null<Array<Int>>, tags:Null<Array<String>>, data:Dynamic);
 
 	/**
 		Used to request a single or multiple values from the server's data storage, see the Set package for how to write values to the data storage.
@@ -567,9 +554,7 @@ enum OutgoingPacket {
 		@param keys Keys to retrieve the values for.
 	**/
 	@:json({cmd: "Get"})
-	Get(
-		keys:Array<String>
-	);
+	Get(keys:Array<String>);
 
 	/**
 		Used to write data to the server's data storage, that data can then be shared across worlds or just saved for later.
@@ -580,30 +565,27 @@ enum OutgoingPacket {
 		@param operations Operations to apply to the value, multiple operations can be present and they will be executed in order of appearance.
 	**/
 	@:json({cmd: "Set"})
-	Set(
-		key:String,
-		//default:Dynamic,
-		want_reply:Bool,
-		operations:Array<DataStorageOperation>
-	);
+	Set(key:String, // default:Dynamic,
+		want_reply:Bool, operations:Array<DataStorageOperation>);
 
 	/**
 		Used to register your current session for receiving all SetReply packages of certain keys to allow your client to keep track of changes.
 		@param keys Keys to receive all SetReply packages for.
 	**/
 	@:json({cmd: "SetNotify"})
-	SetNotify(
-		keys:Array<String>
-	);
+	SetNotify(keys:Array<String>);
 }
 
 // Bounce packets
+
 /** A special kind of Bounce packet that can be supported by any AP game. It targets the tag "DeathLink". **/
 typedef DeathLinkBouncePacket = {
 	/** Unix Time Stamp of time of death. **/
 	var time:Float;
+
 	/** Optional. Text to explain the cause of death, ex. "Berserker was run over by a train." **/
 	var ?cause:String;
+
 	/** Name of the player who first died. Can be a slot name, but can also be a name from within a multiplayer game. **/
 	var source:String;
 }

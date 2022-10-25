@@ -164,8 +164,8 @@ class Client {
 		@param uri The server to connect to, including host name and port.
 	**/
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
-		#if debug
-		trace("Creating new AP client to " + uri);
+		#if apdebug
+		trace('AP: Creating new AP client to $uri');
 		#end
 
 		if (uri.length > 0) {
@@ -366,8 +366,8 @@ class Client {
 		@return Whether the operation was successful.
 	**/
 	private inline function InternalSend(packet:OutgoingPacket):Bool {
-		#if debug
-		trace("> " + packet);
+		#if apdebug
+		trace("AP: > " + packet);
 		#end
 		_ws.send(TJson.stringify([packet]));
 		return true;
@@ -418,23 +418,19 @@ class Client {
 		if (tags == null)
 			tags = [];
 		if (ver == null)
-			ver = {
-				major: 0,
-				minor: 3,
-				build: 2,
-			};
+			ver = [0,3,2];
 
-		var sendVer = new DynamicAccess<Dynamic>();
-		sendVer.set("major", ver.major);
-		sendVer.set("minor", ver.minor);
-		sendVer.set("build", ver.build);
-		sendVer.set("class", "Version");
+		// var sendVer = new DynamicAccess<Dynamic>();
+		// sendVer.set("major", ver.major);
+		// sendVer.set("minor", ver.minor);
+		// sendVer.set("build", ver.build);
+		// sendVer.set("class", "Version");
 
 		slot = name;
-		#if debug
-		trace("Connecting to slot...");
+		#if apdebug
+		trace("AP: Connecting to slot...");
 		#end
-		return InternalSend(OutgoingPacket.Connect(password, game, name, uuid, sendVer, items_handling, tags));
+		return InternalSend(OutgoingPacket.Connect(password, game, name, uuid, ver, items_handling, tags));
 	}
 
 	/**
@@ -514,9 +510,9 @@ class Client {
 			var t = Timer.stamp();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
 				if (state != State.DISCONNECTED)
-					trace("Connect timed out. Retrying.");
+					trace("AP: Connect timed out. Retrying.");
 				else
-					trace("Reconnecting to server");
+					trace("AP: Reconnecting to server");
 				connect_socket();
 			}
 		}
@@ -529,8 +525,10 @@ class Client {
 		#else
 		_msgMutex.acquire("process_queue");
 		#end
+		#if apdebug
 		if (_packetQueue.length > 0)
-			trace(_packetQueue.length + " packet(s) in queue; processing");
+			trace('AP: ${_packetQueue.length} packet(s) in queue; processing"';
+		#end
 		for (packet in _packetQueue) {
 			switch (packet) {
 				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions,
@@ -566,9 +564,9 @@ class Client {
 					}
 					if (!(dataPackageValid = include.length > 0))
 						GetDataPackage(include);
-					#if debug
+					#if apdebug
 					else
-						trace("DataPackage up to date");
+						trace("AP: DataPackage up to date");
 					#end
 
 				case ConnectionRefused(errors):
@@ -637,8 +635,8 @@ class Client {
 						_hOnBounced(data);
 
 				default:
-					#if debug
-					trace("unhandled cmd");
+					#if apdebug
+					trace("AP: unhandled cmd");
 					#end
 			}
 		}
@@ -667,22 +665,22 @@ class Client {
 
 	/** Outputs a message to the terminal. **/
 	private inline function log(msg:String) {
-		trace(msg);
+		trace('AP: $msg');
 	}
 
 	/** Outputs a message to the terminal, only if built in debug mode. **/
 	private inline function debug(msg:String) {
-		#if debug
-		trace(msg);
+		#if apdebug
+		trace('AP: $msg');
 		#end
 	}
 
 	/** Called when the websocket is opened. **/
 	private function onopen() {
-		#if debug
-		trace("onopen()");
+		#if apdebug
+		trace("AP: onopen()");
 		#end
-		trace("Server connected");
+		trace("AP: Server connected");
 		state = State.SOCKET_CONNECTED;
 		if (_hOnSocketConnected != null)
 			_hOnSocketConnected();
@@ -691,11 +689,11 @@ class Client {
 
 	/** Called when the websocket is closed. **/
 	private function onclose() {
-		#if debug
-		trace("onclose()");
+		#if apdebug
+		trace("AP: onclose()");
 		#end
 		if (state > State.SOCKET_CONNECTING) {
-			trace("Server disconnected");
+			trace("AP: Server disconnected");
 			state = State.DISCONNECTED;
 			if (_hOnSocketDisconnected != null)
 				_hOnSocketDisconnected();
@@ -709,8 +707,8 @@ class Client {
 		@param msg The message received.
 	**/
 	private function onmessage(msg:MessageType) {
-		#if debug
-		trace("onmessage()");
+		#if apdebug
+		trace("AP: onmessage()");
 		#end
 		switch (msg) {
 			case StrMessage(content):
@@ -721,11 +719,13 @@ class Client {
 				#end
 				try {
 					var newPackets:Array<IncomingPacket> = TJson.parse(content);
+					#if apdebug
 					trace(newPackets);
+					#end
 					for (newPacket in newPackets)
 						_packetQueue.push(newPacket);
 				} catch (e) {
-					trace("EXCEPTION: " + e);
+					trace("AP EXCEPTION: " + e);
 				}
 				// _packetQueue = _packetQueue.concat(ne);
 				#if sys
@@ -743,8 +743,8 @@ class Client {
 		@param e The error data.
 	**/
 	private function onerror(e:Dynamic) {
-		#if debug
-		trace("onerror()");
+		#if apdebug
+		trace("AP: onerror()");
 		#end
 	}
 
@@ -758,8 +758,8 @@ class Client {
 			return;
 		}
 		state = State.SOCKET_CONNECTING;
-		#if debug
-		trace("Connecting to " + uri);
+		#if apdebug
+		trace('AP: Connecting to $uri');
 		#end
 		_ws = new WebSocket(uri);
 		_ws.onopen = onopen;
