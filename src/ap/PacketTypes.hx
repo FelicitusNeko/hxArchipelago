@@ -25,10 +25,13 @@ abstract SlotType(Int) from Int to Int {
 abstract ItemFlags(Int) from Int to Int {
 	/** Nothing special about this item **/
 	var FLAG_NONE = 0;
+
 	/** If set, indicates the item can unlock logical advancement **/
 	var FLAG_ADVANCEMENT = 1 << 0;
+
 	/** If set, indicates the item is important but not in a way that unlocks advancement **/
 	var FLAG_NEVER_EXCLUDE = 1 << 1;
+
 	/** If set, indicates the item is a trap **/
 	var FLAG_TRAP = 1 << 2;
 }
@@ -38,20 +41,28 @@ abstract ItemFlags(Int) from Int to Int {
 abstract JSONType(String) {
 	/** Regular text content. Is the default type and as such may be omitted. **/
 	var JTYPE_TEXT = "text";
+
 	/** player ID of someone on your team, should be resolved to Player Name **/
 	var JTYPE_PLAYER_ID = "player_id";
+
 	/** Player Name, could be a player within a multiplayer game or from another team, not ID resolvable **/
 	var JTYPE_PLAYER_NAME = "player_name";
+
 	/** Item ID, should be resolved to Item Name **/
 	var JTYPE_ITEM_ID = "item_id";
+
 	/** Item Name, not currently used over network, but supported by reference Clients. **/
 	var JTYPE_ITEM_NAME = "item_name";
+
 	/** Location ID, should be resolved to Location Name **/
 	var JTYPE_LOCATION_ID = "location_id";
+
 	/** Location Name, not currently used over network, but supported by reference Clients. **/
 	var JTYPE_LOCATION_NAME = "location_name";
+
 	/** Entrance Name. No ID mapping exists. **/
 	var JTYPE_ENTRANCE_NAME = "entrance_name";
+
 	/** Regular text that should be colored. Only `type` that will contain `color` data.**/
 	var JTYPE_COLOR = "color";
 }
@@ -69,12 +80,16 @@ abstract ClientStatus(Int) {
 typedef NetworkItem = {
 	/** The item id of the item. Item ids are in the range of ±2⁵³-1. **/
 	var item:Int;
+
 	/** The location id of the item inside the world. Location ids are in the range of ±2⁵³-1. **/
 	var location:Int;
+
 	/** The player slot of the world the item is located in, except when inside an LocationInfo Packet then it will be the slot of the player to receive the item **/
 	var player:Int;
+
 	/** Flags to denote the item's importance. **/
 	var flags:ItemFlags;
+
 	/** The index number of the item. Not filled in by the AP server, but added by hxArchipelago for convenience. **/
 	var ?index:Int;
 }
@@ -83,10 +98,13 @@ typedef NetworkItem = {
 typedef NetworkPlayer = {
 	/** The team number the player is in. **/
 	var team:Int;
+
 	/** The slot number for the player. **/
 	var slot:Int;
+
 	/** The player's name in current time. **/
 	var alias:String;
+
 	/** The original name used when the session was generated. This is typically distinct in games which require baking names into ROMs or for async games. **/
 	var name:String;
 }
@@ -100,43 +118,77 @@ typedef JSONMessagePart = {
 		How these types are displayed in Archipelago's ALttP client is not the end-all be-all. Other clients may choose to interpret and display these messages differently.
 	**/
 	var ?type:JSONType;
+
 	/**
 		Used to denote a console color to display the message part with and is only send if the `type` is `color`. This is limited to console colors due to backwards
 		compatibility needs with games such as ALttP. Although background colors as well as foreground colors are listed, only one may be applied to a `JSONMessagePart`
 		at a time.
 	**/
 	var ?color:String;
+
 	/** The content of the message part to be displayed. **/
 	var ?text:String;
+
 	/** Marks owning player id for location/item **/
 	var ?found:Bool;
+
 	/** Contains the `NetworkItem` flags that belong to the item **/
 	var ?flags:ItemFlags;
 }
 
 // TODO: figure out how to not have to include "class" through Tink library
-//@:json({"class": "Version"})
-// @:jsonStringify((ver:NetworkVersion) -> {
+// @:json({"class": "Version"})
+
+/** An object representing software versioning. Used in the Connect packet to allow the client to inform the server of the Archipelago version it supports. **/
+typedef INetworkVersion = {
+	var major:Int;
+	var minor:Int;
+	var build:Int;
+}
+
+@:forward
+// @:jsonStringify(function (ver:ap.PacketTypes.NetworkVersion)
 // 	return {
 // 		major: ver.major,
 // 		minor: ver.minor,
 // 		build: ver.build,
 // 		"class": "Version"
 // 	};
-// })
-/** An object representing software versioning. Used in the Connect packet to allow the client to inform the server of the Archipelago version it supports. **/
-typedef NetworkVersion = {
-	var major:Int;
-	var minor:Int;
-	var build:Int;
+// )
+@:json({"class": "Version"})
+abstract NetworkVersion(INetworkVersion) from INetworkVersion to INetworkVersion {
+	public function new(ver:INetworkVersion)
+		this = ver;
+
+	@:to
+	public function toString()
+		return '${this.major}.${this.minor}.${this.build}';
+
+	@:from
+	public static function fromArray(ver:Array<Int>) {
+		var retval:INetworkVersion = {major: 0, minor: 0, build: 0};
+		if (ver.length > 0)
+			retval.major = ver[0];
+		if (ver.length > 1)
+			retval.minor = ver[1];
+		if (ver.length > 2)
+			retval.build = ver[2];
+		return new NetworkVersion(retval);
+	}
+
+	@:to
+	public function toArray()
+		return [this.major, this.minor, this.build];
 }
 
 /** GameData is a dict but contains these keys and values. It's broken out into another "type" for ease of documentation. **/
 typedef GameData = {
 	/** Mapping of all item names to their respective ID. **/
 	var item_name_to_id:DynamicAccess<Int>;
+
 	/** Mapping of all location names to their respective ID. **/
 	var location_name_to_id:DynamicAccess<Int>;
+
 	/** Version number of this game's data **/
 	var version:Int;
 }
@@ -156,6 +208,7 @@ typedef GameData = {
 **/
 typedef DataPackageObject = {
 	var version:Int;
+
 	/** Mapping of all Games and their respective data **/
 	var games:DynamicAccess<GameData>;
 }
@@ -580,8 +633,20 @@ enum OutgoingPacket {
 		@param want_reply If set, the server will send a SetReply response back to the client.
 		@param operations Operations to apply to the value, multiple operations can be present and they will be executed in order of appearance.
 	**/
-	// TODO: handle changing "dflt" to "default"
-	@:json({cmd: "Set"})
+	// TODO: handle changing "dflt" to "default" (I have no reason to believe this method will work 'cause jsonStringify is not working for NetworkVersion)
+	//@:json({cmd: "Set"})
+	@:jsonStringify((data:ap.PacketTypes.OutgoingPacket) -> {
+		return switch (data) {
+			case Set(key, dflt, want_reply, operations): {
+				cmd: "Set",
+				key: key,
+				"default": dflt,
+				want_reply: want_reply,
+				operations: operations
+			};
+			default: null;
+		}
+	})
 	Set(
 		key:String,
 		dflt:Dynamic,
@@ -600,12 +665,15 @@ enum OutgoingPacket {
 }
 
 // Bounce packets
+
 /** A special kind of Bounce packet that can be supported by any AP game. It targets the tag "DeathLink". **/
 typedef DeathLinkBouncePacket = {
 	/** Unix Time Stamp of time of death. **/
 	var time:Float;
+
 	/** Optional. Text to explain the cause of death, ex. "Berserker was run over by a train." **/
 	var ?cause:String;
+
 	/** Name of the player who first died. Can be a slot name, but can also be a name from within a multiplayer game. **/
 	var source:String;
 }
