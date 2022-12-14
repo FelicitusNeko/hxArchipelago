@@ -677,6 +677,7 @@ class Client {
 					if (games != null && !games.contains(game)) break;
 					if (slots != null && !slots.contains(slotnr)) break;
 					// TODO: check to make sure tag matches
+					if (tags != null)
 					if (_hOnBounced != null)
 						_hOnBounced(data);
 
@@ -824,6 +825,13 @@ class Client {
 		_socketReconnectInterval *= 2;
 		if (_socketReconnectInterval > 15)
 			_socketReconnectInterval = 15;
+	}
+
+	function disconnect_socket() {
+		if (_ws != null) {
+			_ws.close();
+			state = State.DISCONNECTED;
+		}
 	}
 
 	/**
