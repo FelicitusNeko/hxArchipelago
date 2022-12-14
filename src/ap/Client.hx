@@ -827,7 +827,7 @@ class Client {
 			_socketReconnectInterval = 15;
 	}
 
-	function disconnect_socket() {
+	public function disconnect_socket() {
 		if (_ws != null) {
 			_ws.close();
 			state = State.DISCONNECTED;
