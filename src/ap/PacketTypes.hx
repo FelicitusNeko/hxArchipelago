@@ -295,7 +295,6 @@ enum IncomingPacket {
 		@param hint_cost The amount of points it costs to receive a hint from the server.
 		@param location_check_points The amount of hint points you receive per item/location check completed.
 		@param games List of games present in this multiworld.
-		@param datapackage_version Sum of individual games' datapackage version. Deprecated. Use `datapackage_versions` instead.
 		@param datapackage_versions Data versions of the individual games' data packages the server will send.
 			Used to decide which games' caches are outdated. See Data Package Contents.
 		@param seed_name uniquely identifying name of this generation
@@ -312,7 +311,6 @@ enum IncomingPacket {
 		hint_cost:Int,
 		location_check_points:Int,
 		games:Array<String>,
-		datapackage_version:Int,
 		datapackage_versions:DynamicAccess<Int>,
 		seed_name:String,
 		time:Float
@@ -381,7 +379,6 @@ enum IncomingPacket {
 		@param hint_cost The amount of points it costs to receive a hint from the server.
 		@param location_check_points The amount of hint points you receive per item/location check completed.
 		@param games List of games present in this multiworld.
-		@param datapackage_version Sum of individual games' datapackage version. Deprecated. Use `datapackage_versions` instead.
 		@param datapackage_versions Data versions of the individual games' data packages the server will send.
 			Used to decide which games' caches are outdated. See Data Package Contents.
 		@param seed_name uniquely identifying name of this generation
@@ -401,7 +398,6 @@ enum IncomingPacket {
 		hint_cost:Null<Int>,
 		location_check_points:Null<Int>,
 		games:Null<Array<String>>,
-		datapackage_version:Null<Int>,
 		datapackage_versions:Null<DynamicAccess<Int>>,
 		seed_name:Null<String>,
 		time:Null<Float>,

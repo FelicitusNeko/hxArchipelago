@@ -446,7 +446,7 @@ class Client {
 			ver = {
 				major: 0,
 				minor: 3,
-				build: 2,
+				build: 7,
 			};
 
 		var sendVer = new DynamicAccess<Dynamic>();
@@ -576,7 +576,7 @@ class Client {
 			trace(_packetQueue.length + " packet(s) in queue; processing");
 		for (packet in _packetQueue) {
 			switch (packet) {
-				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions,
+				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_versions,
 					seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
@@ -647,7 +647,7 @@ class Client {
 					if (_hOnLocationInfo != null)
 						_hOnLocationInfo(locations);
 
-				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, _, checked_locations, missing_locations):
+				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
 					if (_hOnLocationChecked != null)
 						_hOnLocationChecked(checked_locations);
