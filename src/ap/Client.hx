@@ -158,6 +158,20 @@ class Client {
 	public var _hOnLocationChecked(null, default):Array<Int>->Void = null;
 
 	/**
+		Write-only. Called when data has been retrieved from a Get call.
+		@param keys A key-value collection containing all the values for the keys requested in the Get package.
+	**/
+	public var _hOnRetrieved(null, default):DynamicAccess<Dynamic>->Void = null;
+
+	/**
+		Write-only. Called when a Set operation has been processed, and a reply was requested.
+		@param key The key that was updated.
+		@param value The new value for the key.
+		@param original_value The value the key had before it was updated.
+	**/
+	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic)->Void = null;
+
+	/**
 		Creates a new instance of the Archipelago client.
 		@param uuid The unique ID for this client. Deprecated, and likely to be removed in a later version.
 		@param game The game to connect to.
@@ -188,7 +202,7 @@ class Client {
 
 		this.uuid = uuid;
 		this.game = game;
-		_dataPackage = {games: new DynamicAccess<GameData>()};
+		_dataPackage = {version: -1, games: new DynamicAccess<GameData>()};
 		connect_socket();
 	}
 
@@ -294,6 +308,17 @@ class Client {
 		if (_items.exists(code))
 			return _items.get(code);
 		return "Unknown";
+	}
+
+	/**
+		Resolves an item name into the ID of that item. Usage is not recommended.
+		@param name The name of the item to look up.
+		@return The ID associated with the item name, or `null` if it was not found.
+	**/
+	public function get_item_id(name:String):Null<Int> {
+		if (_dataPackage.games.exists(game) && _dataPackage.games[game].item_name_to_id.exists(name))
+			return _dataPackage.games[game].item_name_to_id[name];
+		return null;
 	}
 
 	/**
@@ -421,7 +446,7 @@ class Client {
 			ver = {
 				major: 0,
 				minor: 3,
-				build: 2,
+				build: 7,
 			};
 
 		var sendVer = new DynamicAccess<Dynamic>();
@@ -502,6 +527,24 @@ class Client {
 		return InternalSend(OutgoingPacket.Say(text));
 	}
 
+	public function Get(keys:Array<String>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.Get(keys));
+	}
+
+	public function Set(key:String, dflt:Dynamic, want_reply:Bool, operations:Array<DataStorageOperation>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.Set(key, dflt, want_reply, operations));
+	}
+
+	public function SetNotify(keys:Array<String>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.SetNotify(keys));
+	}
+
 	/** Polls the client for new packets. **/
 	public function poll() {
 		if (_ws != null && state == State.DISCONNECTED) {
@@ -533,7 +576,7 @@ class Client {
 			trace(_packetQueue.length + " packet(s) in queue; processing");
 		for (packet in _packetQueue) {
 			switch (packet) {
-				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions,
+				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_versions,
 					seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
@@ -604,13 +647,14 @@ class Client {
 					if (_hOnLocationInfo != null)
 						_hOnLocationInfo(locations);
 
-				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, _, checked_locations, missing_locations):
+				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
 					if (_hOnLocationChecked != null)
 						_hOnLocationChecked(checked_locations);
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
+						version: _dataPackage.version,
 						games: _dataPackage.games.copy(),
 					};
 					for (game => gameData in pdata.games)
@@ -633,8 +677,18 @@ class Client {
 					if (games != null && !games.contains(game)) break;
 					if (slots != null && !slots.contains(slotnr)) break;
 					// TODO: check to make sure tag matches
+					if (tags != null)
 					if (_hOnBounced != null)
 						_hOnBounced(data);
+
+				// BUG: "Cannot access non-static abstract field statically" on extracting "keys"
+				// case Retrieved(keys):
+				// 	if (_hOnRetrieved != null)
+				// 		_hOnRetrieved(keys);
+
+				case SetReply(key, value, original_value):
+					if (_hOnSetReply != null)
+						_hOnSetReply(key, value, original_value);
 
 				default:
 					#if debug
@@ -771,6 +825,13 @@ class Client {
 		_socketReconnectInterval *= 2;
 		if (_socketReconnectInterval > 15)
 			_socketReconnectInterval = 15;
+	}
+
+	public function disconnect_socket() {
+		if (_ws != null) {
+			_ws.close();
+			state = State.DISCONNECTED;
+		}
 	}
 
 	/**
