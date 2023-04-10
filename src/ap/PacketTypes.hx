@@ -3,8 +3,7 @@ package ap;
 import haxe.DynamicAccess;
 
 /** An enumeration containing the possible command permission, for commands that may be restricted. **/
-@:enum
-abstract Permission(Int) from Int to Int {
+enum abstract Permission(Int) from Int to Int {
 	var PERM_DISABLED = 0;
 	var PERM_ENABLED = 1 << 0;
 	var PERM_GOAL = 1 << 1;
@@ -14,15 +13,13 @@ abstract Permission(Int) from Int to Int {
 }
 
 /** An enum representing the nature of a slot. **/
-@:enum
-abstract SlotType(Int) from Int to Int {
+enum abstract SlotType(Int) from Int to Int {
 	var STYPE_SPECTATOR = 0;
 	var STYPE_PLAYER = 1 << 0;
 	var STYPE_GROUP = 1 << 1;
 }
 
-@:enum
-abstract ItemFlags(Int) from Int to Int {
+enum abstract ItemFlags(Int) from Int to Int {
 	/** Nothing special about this item **/
 	var FLAG_NONE = 0;
 	/** If set, indicates the item can unlock logical advancement **/
@@ -34,8 +31,7 @@ abstract ItemFlags(Int) from Int to Int {
 }
 
 /** `type` is used to denote the intent of the message part. **/
-@:enum
-abstract JSONType(String) {
+enum abstract JSONType(String) {
 	/** Regular text content. Is the default type and as such may be omitted. **/
 	var JTYPE_TEXT = "text";
 	/** player ID of someone on your team, should be resolved to Player Name **/
@@ -57,9 +53,9 @@ abstract JSONType(String) {
 }
 
 /** An enumeration containing the possible client states that may be used to inform the server in StatusUpdate. **/
-@:enum
-abstract ClientStatus(Int) {
+enum abstract ClientStatus(Int) {
 	var UNKNOWN = 0;
+	var CONNECTED = 5;
 	var READY = 10;
 	var PLAYING = 20;
 	var GOAL = 30;
@@ -114,6 +110,17 @@ typedef JSONMessagePart = {
 	var ?flags:ItemFlags;
 }
 
+/** An object representing a Hint. **/
+typedef Hint = {
+	var receiving_player:Int;
+	var finding_player:Int;
+	var location:Int;
+	var item:Int;
+	var found:Bool;
+	var entrance:String;
+	var item_flags:Int;
+}
+
 // TODO: figure out how to not have to include "class" through Tink library
 //@:json({"class": "Version"})
 // @:jsonStringify((ver:NetworkVersion) -> {
@@ -137,8 +144,10 @@ typedef GameData = {
 	var item_name_to_id:DynamicAccess<Int>;
 	/** Mapping of all location names to their respective ID. **/
 	var location_name_to_id:DynamicAccess<Int>;
-	/** Version number of this game's data **/
-	var version:Int;
+	/** **Deprecated.** Version number of this game's data. Use `checksum` instead. **/
+	var ?version:Int;
+	/** A checksum hash of this game's data. **/
+	var checksum:String;
 }
 
 /**
@@ -164,6 +173,7 @@ typedef NetworkSlot = {
 	var name:String;
 	var game:String;
 	var type:SlotType;
+	/** Only populated in `type == group` **/
 	var ?group_members:Array<Int>;
 }
 
@@ -241,9 +251,10 @@ enum IncomingPacket {
 		@param hint_cost The amount of points it costs to receive a hint from the server.
 		@param location_check_points The amount of hint points you receive per item/location check completed.
 		@param games List of games present in this multiworld.
-		@param datapackage_version Sum of individual games' datapackage version. Deprecated. Use `datapackage_versions` instead.
-		@param datapackage_versions Data versions of the individual games' data packages the server will send.
-			Used to decide which games' caches are outdated. See Data Package Contents.
+		@param datapackage_version **Deprecated.** Use `datapackage_checksums` instead. No longer present in 0.4.x.
+		@param datapackage_versions **Deprecated.** Use `datapackage_checksums` instead.
+		@param datapackage_checksums Checksum hash of the individual games' data packages the server will send.
+			Used by newer clients to decide which games' caches are outdated.
 		@param seed_name uniquely identifying name of this generation
 		@param time Unix time stamp of "now". Send for time synchronization if wanted for things like the DeathLink Bounce.
 	**/
@@ -258,8 +269,9 @@ enum IncomingPacket {
 		hint_cost:Int,
 		location_check_points:Int,
 		games:Array<String>,
-		datapackage_version:Int,
-		datapackage_versions:DynamicAccess<Int>,
+		?datapackage_version:Int,
+		?datapackage_versions:DynamicAccess<Int>,
+		datapackage_checksums:DynamicAccess<String>,
 		seed_name:String,
 		time:Float
 	);
@@ -291,7 +303,7 @@ enum IncomingPacket {
 		players:Array<NetworkPlayer>,
 		missing_locations:Array<Int>,
 		checked_locations:Array<Int>,
-		slot_data:Null<Dynamic>,
+		?slot_data:Null<Dynamic>,
 		slot_info:DynamicAccess<NetworkSlot>
 	);
 
@@ -327,9 +339,10 @@ enum IncomingPacket {
 		@param hint_cost The amount of points it costs to receive a hint from the server.
 		@param location_check_points The amount of hint points you receive per item/location check completed.
 		@param games List of games present in this multiworld.
-		@param datapackage_version Sum of individual games' datapackage version. Deprecated. Use `datapackage_versions` instead.
-		@param datapackage_versions Data versions of the individual games' data packages the server will send.
-			Used to decide which games' caches are outdated. See Data Package Contents.
+		@param datapackage_version **Deprecated.** Use `datapackage_checksums` instead. No longer present in 0.4.x.
+		@param datapackage_versions **Deprecated.** Use `datapackage_checksums` instead.
+		@param datapackage_checksums Checksum hash of the individual games' data packages the server will send.
+			Used by newer clients to decide which games' caches are outdated.
 		@param seed_name uniquely identifying name of this generation
 		@param time Unix time stamp of "now". Send for time synchronization if wanted for things like the DeathLink Bounce.
 
@@ -340,22 +353,23 @@ enum IncomingPacket {
 	**/
 	@:json({cmd: "RoomUpdate"})
 	RoomUpdate(
-		version:Null<DynamicAccess<Dynamic>>,
-		tags:Null<Array<String>>,
-		password:Null<Bool>,
-		permissions:Null<DynamicAccess<Permission>>,
-		hint_cost:Null<Int>,
-		location_check_points:Null<Int>,
-		games:Null<Array<String>>,
-		datapackage_version:Null<Int>,
-		datapackage_versions:Null<DynamicAccess<Int>>,
-		seed_name:Null<String>,
-		time:Null<Float>,
+		?version:DynamicAccess<Dynamic>,
+		?tags:Array<String>,
+		?password:Bool,
+		?permissions:DynamicAccess<Permission>,
+		?hint_cost:Int,
+		?location_check_points:Int,
+		?games:Array<String>,
+		?datapackage_version:Int,
+		?datapackage_versions:DynamicAccess<Int>,
+		?datapackage_checksums:DynamicAccess<String>,
+		?seed_name:String,
+		?time:Float,
 
-		hint_points:Null<Int>,
-		players:Null<Array<NetworkPlayer>>,
-		checked_locations:Null<Array<Int>>,
-		missing_locations:Null<Array<Int>>
+		?hint_points:Int,
+		?players:Array<NetworkPlayer>,
+		?checked_locations:Array<Int>,
+		?missing_locations:Array<Int>
 	);
 
 	/**
@@ -375,14 +389,24 @@ enum IncomingPacket {
 		@param receiving Is present if type is Hint or ItemSend and marks the destination player's ID.
 		@param item Is present if type is Hint or ItemSend and marks the source player id, location id, item id and item flags.
 		@param found Is present if type is Hint, denotes whether the location hinted for was checked.
+		@param team Team of the triggering player
+		@param slot Slot of the triggering player
+		@param message Original chat message without sender prefix
+		@param tags Tags of the triggering player
+		@param countdown Amount of seconds remaining on the countdown
 	**/
 	@:json({cmd: "PrintJSON"})
 	PrintJSON(
 		data:Array<JSONMessagePart>,
-		type:Null<String>,
-		receiving:Null<Int>,
-		item:Null<NetworkItem>,
-		found:Null<Bool>
+		?type:String,
+		?receiving:Int,
+		?item:NetworkItem,
+		?found:Bool,
+		?team:Int,
+		?slot:Int,
+		?message:String,
+		?tags:DynamicAccess<String>,
+		?countdown:Int
 	);
 
 	/**
@@ -397,9 +421,9 @@ enum IncomingPacket {
 
 	/**
 		Sent to clients after a client requested this message be sent to them, more info in the Bounce package.
-		@param games Optional. Game names this message is targeting
-		@param slots Optional. Player slot IDs that this message is targeting
-		@param tags Optional. Client Tags this message is targeting
+		@param games *Optional.* Game names this message is targeting
+		@param slots *Optional.* Player slot IDs that this message is targeting
+		@param tags *Optional.* Client Tags this message is targeting
 		@param data The data in the Bounce package copied
 	**/
 	@:json({cmd: "Bounced"})
@@ -462,6 +486,7 @@ enum OutgoingPacket {
 		@param version An object representing the Archipelago version this client supports.
 		@param items_handling Flags configuring which items should be sent by the server. Read below for individual flags.
 		@param tags Denotes special features or capabilities that the sender is capable of.
+		@param slot_data If true, the Connect answer will contain `slot_data`
 	**/
 	@:json({cmd: "Connect"})
 	Connect(
@@ -473,7 +498,8 @@ enum OutgoingPacket {
 		//version:NetworkVersion,
 		version:DynamicAccess<Dynamic>,
 		items_handling:Int,
-		tags:Array<String>
+		tags:Array<String>,
+		slot_data:Bool
 	);
 
 	/**
@@ -536,7 +562,7 @@ enum OutgoingPacket {
 
 	/**
 		Requests the data package from the server. Does not require client authentication.
-		@param include Optional. If specified, will only send back the specified data. Such as, `["Factorio"]` → Datapackage with only Factorio data.
+		@param include *Optional.* If specified, will only send back the specified data. Such as, `["Factorio"]` → Datapackage with only Factorio data.
 	**/
 	@:json({cmd: "GetDataPackage"})
 	GetDataPackage(
@@ -546,9 +572,9 @@ enum OutgoingPacket {
 	/**
 		Send this message to the server, tell it which clients should receive the message and the server will forward the message to all those targets
 		to which any one requirement applies.
-		@param games Optional. Game names that should receive this message
-		@param slots Optional. Player slot IDs that that should receive this message
-		@param tags Optional. Client Tags that should receive this message
+		@param games *Optional.* Game names that should receive this message
+		@param slots *Optional.* Player slot IDs that that should receive this message
+		@param tags *Optional.* Client Tags that should receive this message
 		@param data Any data you want to send
 	**/
 	@:json({cmd: "Bounce"})

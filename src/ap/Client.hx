@@ -76,6 +76,18 @@ class Client {
 	/** Read-only. The slot number the player is in. **/
 	public var slotnr(default, null):Int = -1;
 
+	/** Read-only. The number of hint points the player has. **/
+	public var hintPoints(default, null):Int = -1;
+
+	/** Read-only. The number of hint points it costs to request a hint. **/
+	public var hintCostPoints(get, null):Int;
+
+	/** Read-only. The percentage of total hint points it costs to request a hint. **/
+	public var hintCostPercent(default, null):Int = -1;
+
+	/** Read-only. The total number of location checks in this world. **/
+	public var locationCount(default, null):Int = -1;
+
 	/** Read-only. Whether the data package is currently accurate to server data. **/
 	public var dataPackageValid(default, null):Bool = false;
 
@@ -296,6 +308,12 @@ class Client {
 		return "Unknown";
 	}
 
+	public function get_hintCostPoints() {
+		if (hintCostPercent <= 0) return hintCostPercent;
+		if (locationCount <= 0) return locationCount;
+		return Math.floor(Math.max(1, hintCostPercent * locationCount / 100));
+	}
+
 	/**
 		Renders `JSONMessagePart`s into a more usable format.
 		@param msg The `JSONMessagePart`s to render.
@@ -434,7 +452,7 @@ class Client {
 		#if debug
 		trace("Connecting to slot...");
 		#end
-		return InternalSend(OutgoingPacket.Connect(password, game, name, uuid, sendVer, items_handling, tags));
+		return InternalSend(OutgoingPacket.Connect(password, game, name, uuid, sendVer, items_handling, tags, true));
 	}
 
 	/**
@@ -533,11 +551,13 @@ class Client {
 			trace(_packetQueue.length + " packet(s) in queue; processing");
 		for (packet in _packetQueue) {
 			switch (packet) {
-				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, datapackage_version, datapackage_versions,
+				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions, datapackage_checksums,
 					seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
 					seed = seed_name;
+					hintCostPercent = hint_cost;
+					hintPoints *= location_check_points;
 					if (state < State.ROOM_INFO)
 						state = State.ROOM_INFO;
 					if (_hOnRoomInfo != null)
@@ -580,6 +600,8 @@ class Client {
 					this.team = team;
 					slotnr = slot;
 					_players = [];
+					locationCount = missing_locations.length + checked_locations.length;
+					hintPoints = checked_locations.length;
 					for (player in players)
 						_players.push({
 							team: player.team,
@@ -604,8 +626,9 @@ class Client {
 					if (_hOnLocationInfo != null)
 						_hOnLocationInfo(locations);
 
-				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, _, checked_locations, missing_locations):
+				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
+					hintPoints = hint_points;
 					if (_hOnLocationChecked != null)
 						_hOnLocationChecked(checked_locations);
 
@@ -625,7 +648,7 @@ class Client {
 					if (_hOnPrint != null)
 						_hOnPrint(text);
 
-				case PrintJSON(data, type, receiving, item, found):
+				case PrintJSON(data, type, receiving, item, found, team, slot, message, tags, countdown):
 					if (_hOnPrintJson != null)
 						_hOnPrintJson(data, item, receiving);
 
@@ -761,16 +784,21 @@ class Client {
 		#if debug
 		trace("Connecting to " + uri);
 		#end
-		_ws = new WebSocket(uri);
-		_ws.onopen = onopen;
-		_ws.onclose = onclose;
-		_ws.onmessage = onmessage;
-		_ws.onerror = onerror;
 
-		_lastSocketConnect = Timer.stamp();
-		_socketReconnectInterval *= 2;
-		if (_socketReconnectInterval > 15)
-			_socketReconnectInterval = 15;
+		try {
+			_ws = new WebSocket(uri);
+			_ws.onopen = onopen;
+			_ws.onclose = onclose;
+			_ws.onmessage = onmessage;
+			_ws.onerror = onerror;
+	
+			_lastSocketConnect = Timer.stamp();
+			_socketReconnectInterval *= 2;
+			if (_socketReconnectInterval > 15)
+				_socketReconnectInterval = 15;
+		} catch (e) {
+			trace("Error connecting to AP socket: " + e);
+		}
 	}
 
 	/**
