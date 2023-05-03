@@ -170,6 +170,20 @@ class Client {
 	public var _hOnLocationChecked(null, default):Array<Int>->Void = null;
 
 	/**
+		Write-only. Called when data has been retrieved from a Get call.
+		@param keys A key-value collection containing all the values for the keys requested in the Get package.
+	**/
+	public var _hOnRetrieved(null, default):DynamicAccess<Dynamic>->Void = null;
+
+	/**
+		Write-only. Called when a Set operation has been processed, and a reply was requested.
+		@param key The key that was updated.
+		@param value The new value for the key.
+		@param original_value The value the key had before it was updated.
+	**/
+	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic)->Void = null;
+
+	/**
 		Creates a new instance of the Archipelago client.
 		@param uuid The unique ID for this client. Deprecated, and likely to be removed in a later version.
 		@param game The game to connect to.
@@ -200,7 +214,7 @@ class Client {
 
 		this.uuid = uuid;
 		this.game = game;
-		_dataPackage = {games: new DynamicAccess<GameData>()};
+		_dataPackage = {version: -1, games: new DynamicAccess<GameData>()};
 		connect_socket();
 	}
 
@@ -439,7 +453,7 @@ class Client {
 			ver = {
 				major: 0,
 				minor: 3,
-				build: 2,
+				build: 7,
 			};
 
 		var sendVer = new DynamicAccess<Dynamic>();
@@ -518,6 +532,24 @@ class Client {
 		if (state < State.ROOM_INFO)
 			return false;
 		return InternalSend(OutgoingPacket.Say(text));
+	}
+
+	public function Get(keys:Array<String>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.Get(keys));
+	}
+
+	public function Set(key:String, dflt:Dynamic, want_reply:Bool, operations:Array<DataStorageOperation>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.Set(key, dflt, want_reply, operations));
+	}
+
+	public function SetNotify(keys:Array<String>) {
+		if (state < State.SLOT_CONNECTED)
+			return false;
+		return InternalSend(OutgoingPacket.SetNotify(keys));
 	}
 
 	/** Polls the client for new packets. **/
@@ -634,6 +666,7 @@ class Client {
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
+						version: _dataPackage.version,
 						games: _dataPackage.games.copy(),
 					};
 					for (game => gameData in pdata.games)
@@ -656,8 +689,18 @@ class Client {
 					if (games != null && !games.contains(game)) break;
 					if (slots != null && !slots.contains(slotnr)) break;
 					// TODO: check to make sure tag matches
+					if (tags != null)
 					if (_hOnBounced != null)
 						_hOnBounced(data);
+
+				// BUG: "Cannot access non-static abstract field statically" on extracting "keys"
+				// case Retrieved(keys):
+				// 	if (_hOnRetrieved != null)
+				// 		_hOnRetrieved(keys);
+
+				case SetReply(key, value, original_value):
+					if (_hOnSetReply != null)
+						_hOnSetReply(key, value, original_value);
 
 				default:
 					#if debug
@@ -798,6 +841,20 @@ class Client {
 				_socketReconnectInterval = 15;
 		} catch (e) {
 			trace("Error connecting to AP socket: " + e);
+		}
+	}
+
+	public function disconnect_socket() {
+		if (_ws != null) {
+			_ws.close();
+			state = State.DISCONNECTED;
+		}
+	}
+
+	public function disconnect_socket() {
+		if (_ws != null) {
+			_ws.close();
+			state = State.DISCONNECTED;
 		}
 	}
 
