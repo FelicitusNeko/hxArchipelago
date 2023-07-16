@@ -851,13 +851,6 @@ class Client {
 		}
 	}
 
-	public function disconnect_socket() {
-		if (_ws != null) {
-			_ws.close();
-			state = State.DISCONNECTED;
-		}
-	}
-
 	/**
 		Converts a color string to an ANSI representation of that string.
 		@param color The color to convert.
