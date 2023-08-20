@@ -110,6 +110,8 @@ class Client {
 	private var _msgMutex = new PseudoMutex();
 	#end
 
+	// TODO: offer Lime-based event interface if Lime is being used
+
 	/** Write-only. Called when the websocket connects to the server. **/
 	public var _hOnSocketConnected(null, default):Void->Void = null;
 
@@ -401,6 +403,7 @@ class Client {
 		#if debug
 		trace("> " + packet);
 		#end
+		// TODO: rather than send immediately, queue to send during next poll
 		_ws.send(TJson.stringify([packet]));
 		return true;
 	}
@@ -583,7 +586,7 @@ class Client {
 			trace(_packetQueue.length + " packet(s) in queue; processing");
 		for (packet in _packetQueue) {
 			switch (packet) {
-				case RoomInfo(version, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions, datapackage_checksums,
+				case RoomInfo(version, _, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions, datapackage_checksums,
 					seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
@@ -627,13 +630,13 @@ class Client {
 					if (_hOnSlotRefused != null)
 						_hOnSlotRefused(errors);
 
-				case Connected(team, slot, players, missing_locations, checked_locations, slot_data, slot_info):
+				case Connected(team, slot, players, missing_locations, checked_locations, slot_data, slot_info, hint_points):
 					state = State.SLOT_CONNECTED;
 					this.team = team;
 					slotnr = slot;
 					_players = [];
 					locationCount = missing_locations.length + checked_locations.length;
-					hintPoints = checked_locations.length;
+					hintPoints = hint_points;
 					for (player in players)
 						_players.push({
 							team: player.team,
@@ -786,6 +789,9 @@ class Client {
 				_msgMutex.acquire("onmessage");
 				#end
 				try {
+					#if debug
+					trace(content);
+					#end
 					var newPackets:Array<IncomingPacket> = TJson.parse(content);
 					trace(newPackets);
 					for (newPacket in newPackets)
@@ -835,11 +841,13 @@ class Client {
 			_ws.onmessage = onmessage;
 			_ws.onerror = onerror;
 	
+			// BUG: this is wrong; it keeps trying to connect repeatedly
 			_lastSocketConnect = Timer.stamp();
 			_socketReconnectInterval *= 2;
 			if (_socketReconnectInterval > 15)
 				_socketReconnectInterval = 15;
 		} catch (e) {
+			// TODO: report error to main program
 			trace("Error connecting to AP socket: " + e);
 		}
 	}

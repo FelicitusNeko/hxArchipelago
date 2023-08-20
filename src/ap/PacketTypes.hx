@@ -63,7 +63,10 @@ enum abstract JSONType(String) {
 	var JTYPE_COLOR = "color";
 }
 
-/** An enumeration containing the possible client states that may be used to inform the server in StatusUpdate. **/
+/**
+	An enumeration containing the possible client states that may be used to inform the server in StatusUpdate.
+	The MultiServer automatically sets the client state to `ClientStatus.CONNECTED` on the first active connection to a slot.
+**/
 enum abstract ClientStatus(Int) {
 	var UNKNOWN = 0;
 	var CONNECTED = 5;
@@ -195,7 +198,7 @@ typedef GameData = {
 
 	/** Mapping of all location names to their respective ID. **/
 	var location_name_to_id:DynamicAccess<Int>;
-	/** **Deprecated.** Version number of this game's data. Use `checksum` instead. **/
+	/** __Deprecated.__ Version number of this game's data. Use `checksum` instead. **/
 	var ?version:Int;
 	/** A checksum hash of this game's data. **/
 	var checksum:String;
@@ -215,8 +218,6 @@ typedef GameData = {
 	- The IDs from the game "Archipelago" may be used in any other game. Especially Location ID -1: Cheat Console and -2: Server (typically Remote Start Inventory)
 **/
 typedef DataPackageObject = {
-	var version:Int;
-
 	/** Mapping of all Games and their respective data **/
 	var games:DynamicAccess<GameData>;
 }
@@ -291,6 +292,18 @@ enum DataStorageOperation {
 	/** Applies a bitwise right-shift to the current value of the key by `value`. **/
 	@:json({operation: "right_shift"})
 	RightBitshift(value:Dynamic);
+
+	/** List only: removes the first instance of `value` found in the list. **/
+	@:json({operation: "remove"})
+	Remove(value:Dynamic);
+
+	/** List or Dict: for lists it will remove the index of the `value` given. for dicts it removes the element with the specified key of `value`. **/
+	@:json({operation: "pop"})
+	Pop(value:Dynamic);
+
+	/** Dict only: Updates the dictionary with the specified elements given in `value` creating new keys, or updating old ones if they previously existed. **/
+	@:json({operation: "update"})
+	Update(value:Dynamic);
 }
 
 /** These packets are are sent from the multiworld server to the client. They are not messages which the server accepts. **/
@@ -298,6 +311,7 @@ enum IncomingPacket {
 	/**
 		Sent to clients when they connect to an Archipelago server.
 		@param version Object denoting the version of Archipelago which the server is running.
+		@param generator_version Object denoting the version of Archipelago which generated the multiworld.
 		@param tags Denotes special features or capabilities that the sender is capable of. Example: `WebHost`
 		@param password Denoted whether a password is required to join this room.
 		@param permissions Mapping of permission name to `Permission`, keys are: "forfeit", "collect" and "remaining".
@@ -316,9 +330,10 @@ enum IncomingPacket {
 		// HACK: due to how NetworkVersion is sent
 		//version:NetworkVersion,
 		version:DynamicAccess<Dynamic>,
+		?generator_version:DynamicAccess<Dynamic>,
 		tags:Array<String>,
 		password:Bool,
-		permissions:DynamicAccess<Permission>,
+		permissions:DynamicAccess<Int>, // HACK: because auto-on-goal is making this crash
 		hint_cost:Int,
 		location_check_points:Int,
 		games:Array<String>,
@@ -331,7 +346,7 @@ enum IncomingPacket {
 
 	/**
 		Sent to clients when the server refuses connection. This is sent during the initial connection handshake.
-		@param errors Optional. When provided, should contain any one of: `InvalidSlot`, `InvalidGame`, `IncompatibleVersion`, `InvalidPassword`, or `InvalidItemsHandling`.
+		@param errors _Optional._ When provided, should contain any one of: `InvalidSlot`, `InvalidGame`, `IncompatibleVersion`, `InvalidPassword`, or `InvalidItemsHandling`.
 	**/
 	@:json({cmd: "ConnectionRefused"})
 	ConnectionRefused(
@@ -347,6 +362,7 @@ enum IncomingPacket {
 		@param checked_locations Contains ids of all locations that have been checked. Useful for trackers, among other things. Location ids are in the range of ± 2⁵³-1.
 		@param slot_data Contains a json object for slot related data, differs per game. Empty if not required.
 		@param slot_info maps each slot to a `NetworkSlot` information
+		@param hint_points Number of hint points that the current player has.
 		@see NetworkPlayer
 	**/
 	@:json({cmd: "Connected"})
@@ -357,7 +373,8 @@ enum IncomingPacket {
 		missing_locations:Array<Int>,
 		checked_locations:Array<Int>,
 		?slot_data:Null<Dynamic>,
-		slot_info:DynamicAccess<NetworkSlot>
+		slot_info:DynamicAccess<NetworkSlot>,
+		hint_points:Int
 	);
 
 	/**
@@ -398,8 +415,8 @@ enum IncomingPacket {
 			Used by newer clients to decide which games' caches are outdated.
 		@param seed_name uniquely identifying name of this generation
 		@param time Unix time stamp of "now". Send for time synchronization if wanted for things like the DeathLink Bounce.
-
 		@param hint_points New argument. The client's current hint points.
+
 		@param players Send in the event of an alias rename. Always sends all players, whether connected or not.
 		@param checked_locations May be a partial update, containing new locations that were checked, especially from a coop partner in the same slot.
 		@param missing_locations Should never be sent as an update, if needed is the inverse of `checked_locations`.
@@ -409,7 +426,7 @@ enum IncomingPacket {
 		?version:DynamicAccess<Dynamic>,
 		?tags:Array<String>,
 		?password:Bool,
-		?permissions:DynamicAccess<Permission>,
+		?permissions:DynamicAccess<Int>,
 		?hint_cost:Int,
 		?location_check_points:Int,
 		?games:Array<String>,
@@ -418,8 +435,8 @@ enum IncomingPacket {
 		?datapackage_checksums:DynamicAccess<String>,
 		?seed_name:String,
 		?time:Float,
-
 		?hint_points:Int,
+
 		?players:Array<NetworkPlayer>,
 		?checked_locations:Array<Int>,
 		?missing_locations:Array<Int>
@@ -535,7 +552,7 @@ enum OutgoingPacket {
 		@param password If the game session requires a password, it should be passed here.
 		@param game The name of the game the client is playing. Example: `A Link to the Past`
 		@param name The player name for this client.
-		@param uuid Deprecated. Unique identifier for player client. Just needs to contain some value. Likely removed in 0.4.0.
+		@param uuid **Deprecated.** Unique identifier for player client. Just needs to contain some value. Likely removed in 0.4.0.
 		@param version An object representing the Archipelago version this client supports.
 		@param items_handling Flags configuring which items should be sent by the server. Read below for individual flags.
 		@param tags Denotes special features or capabilities that the sender is capable of.
@@ -696,7 +713,7 @@ typedef DeathLinkBouncePacket = {
 	/** Unix Time Stamp of time of death. **/
 	var time:Float;
 
-	/** Optional. Text to explain the cause of death, ex. "Berserker was run over by a train." **/
+	/** _Optional._ Text to explain the cause of death, ex. "Berserker was run over by a train." **/
 	var ?cause:String;
 
 	/** Name of the player who first died. Can be a slot name, but can also be a name from within a multiplayer game. **/
