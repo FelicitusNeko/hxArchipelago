@@ -3,38 +3,83 @@ package ap;
 import haxe.DynamicAccess;
 
 /** An enumeration containing the possible command permission, for commands that may be restricted. **/
-enum abstract Permission(Int) from Int to Int {
-	var PERM_DISABLED = 0;
-	var PERM_ENABLED = 1 << 0;
-	var PERM_GOAL = 1 << 1;
-	var PERM_AUTO = 1 << 2;
-	var PERM_AUTO_GOAL = PERM_GOAL | PERM_AUTO;
-	var PERM_AUTO_ENABLED = PERM_AUTO_GOAL | PERM_ENABLED;
+abstract Permission(Int) from Int to Int {
+	static var PERM_DISABLED = 0;
+	static var PERM_ENABLED = 1 << 0;
+	static var PERM_GOAL = 1 << 1;
+	static var PERM_AUTO = 1 << 2;
+	static var PERM_AUTO_GOAL = PERM_GOAL | PERM_AUTO;
+	static var PERM_AUTO_ENABLED = PERM_AUTO_GOAL | PERM_ENABLED;
+
+	/** Whether this feature is enabled by default. **/
+	public var isEnabled(get, never):Bool;
+
+	/** Whether this feature will be enabled upon reaching the player's goal. **/
+	public var isEnabledOnGoal(get, never):Bool;
+
+	/** Whether this feature will be triggered automatically upon reaching the player's goal. **/
+	public var isAutoOnGoal(get, never):Bool;
+
+	inline function get_isEnabled()
+		return this & PERM_ENABLED == PERM_ENABLED;
+
+	inline function get_isEnabledOnGoal()
+		return this & PERM_GOAL == PERM_GOAL;
+
+	inline function get_isAutoOnGoal()
+		return this & PERM_AUTO_GOAL == PERM_AUTO_GOAL;
 }
 
 /** An enum representing the nature of a slot. **/
-enum abstract SlotType(Int) from Int to Int {
-	var STYPE_SPECTATOR = 0;
-	var STYPE_PLAYER = 1 << 0;
-	var STYPE_GROUP = 1 << 1;
+abstract SlotType(Int) from Int to Int {
+	static var STYPE_SPECTATOR = 0;
+	static var STYPE_PLAYER = 1 << 0;
+	static var STYPE_GROUP = 1 << 1;
+
+	/** Whether this slot belongs to a spectator. **/
+	public var isSpectator(get, never):Bool;
+	/** Whether this slot belongs to a player.**/
+	public var isPlayer(get, never):Bool;
+	/** Whether this slot belongs to a group. **/
+	public var isGroup(get, never):Bool;
+
+	inline function get_isSpectator()
+		return this == 0;
+
+	inline function get_isPlayer()
+		return this & STYPE_PLAYER == STYPE_PLAYER;
+
+	inline function get_isGroup()
+		return this & STYPE_GROUP == STYPE_GROUP;
 }
 
-enum abstract ItemFlags(Int) from Int to Int {
-	/** Nothing special about this item **/
-	var FLAG_NONE = 0;
+abstract ItemFlags(Int) from Int to Int {
+	static var FLAG_NONE = 0;
+	static var FLAG_ADVANCEMENT = 1 << 0;
+	static var FLAG_NEVER_EXCLUDE = 1 << 1;
+	static var FLAG_TRAP = 1 << 2;
 
 	/** If set, indicates the item can unlock logical advancement **/
-	var FLAG_ADVANCEMENT = 1 << 0;
+	public var isAdvancement(get, never):Bool;
 
 	/** If set, indicates the item is important but not in a way that unlocks advancement **/
-	var FLAG_NEVER_EXCLUDE = 1 << 1;
+	public var isNeverExclude(get, never):Bool;
 
 	/** If set, indicates the item is a trap **/
-	var FLAG_TRAP = 1 << 2;
+	public var isTrap(get, never):Bool;
+
+	inline function get_isAdvancement()
+		return this & FLAG_ADVANCEMENT == FLAG_ADVANCEMENT;
+
+	inline function get_isNeverExclude()
+		return this & FLAG_NEVER_EXCLUDE == FLAG_NEVER_EXCLUDE;
+
+	inline function get_isTrap()
+		return this & FLAG_TRAP == FLAG_TRAP;
 }
 
 /** `type` is used to denote the intent of the message part. **/
-enum abstract JSONType(String) {
+enum abstract JSONType(String) from String to String {
 	/** Regular text content. Is the default type and as such may be omitted. **/
 	var JTYPE_TEXT = "text";
 
@@ -67,12 +112,12 @@ enum abstract JSONType(String) {
 	An enumeration containing the possible client states that may be used to inform the server in StatusUpdate.
 	The MultiServer automatically sets the client state to `ClientStatus.CONNECTED` on the first active connection to a slot.
 **/
-enum abstract ClientStatus(Int) {
-	var UNKNOWN = 0;
-	var CONNECTED = 5;
-	var READY = 10;
-	var PLAYING = 20;
-	var GOAL = 30;
+abstract ClientStatus(Int) from Int to Int {
+	public static var UNKNOWN = 0;
+	public static var CONNECTED = 5;
+	public static var READY = 10;
+	public static var PLAYING = 20;
+	public static var GOAL = 30;
 }
 
 /** Items that are sent over the net (in packets). **/
@@ -198,8 +243,10 @@ typedef GameData = {
 
 	/** Mapping of all location names to their respective ID. **/
 	var location_name_to_id:DynamicAccess<Int>;
+
 	/** __Deprecated.__ Version number of this game's data. Use `checksum` instead. **/
 	var ?version:Int;
+
 	/** A checksum hash of this game's data. **/
 	var checksum:String;
 }
@@ -227,6 +274,7 @@ typedef NetworkSlot = {
 	var name:String;
 	var game:String;
 	var type:SlotType;
+
 	/** Only populated in `type == group` **/
 	var ?group_members:Array<Int>;
 }
@@ -333,7 +381,7 @@ enum IncomingPacket {
 		?generator_version:DynamicAccess<Dynamic>,
 		tags:Array<String>,
 		password:Bool,
-		permissions:DynamicAccess<Int>, // HACK: because auto-on-goal is making this crash
+		permissions:DynamicAccess<Permission>,
 		hint_cost:Int,
 		location_check_points:Int,
 		games:Array<String>,
@@ -426,7 +474,7 @@ enum IncomingPacket {
 		?version:DynamicAccess<Dynamic>,
 		?tags:Array<String>,
 		?password:Bool,
-		?permissions:DynamicAccess<Int>,
+		?permissions:DynamicAccess<Permission>,
 		?hint_cost:Int,
 		?location_check_points:Int,
 		?games:Array<String>,
@@ -676,16 +724,16 @@ enum OutgoingPacket {
 		@param operations Operations to apply to the value, multiple operations can be present and they will be executed in order of appearance.
 	**/
 	// TODO: handle changing "dflt" to "default" (I have no reason to believe this method will work 'cause jsonStringify is not working for NetworkVersion)
-	//@:json({cmd: "Set"})
+	// @:json({cmd: "Set"})
 	@:jsonStringify((data:ap.PacketTypes.OutgoingPacket) -> {
 		return switch (data) {
 			case Set(key, dflt, want_reply, operations): {
-				cmd: "Set",
-				key: key,
-				"default": dflt,
-				want_reply: want_reply,
-				operations: operations
-			};
+					cmd: "Set",
+					key: key,
+					"default": dflt,
+					want_reply: want_reply,
+					operations: operations
+				};
 			default: null;
 		}
 	})
