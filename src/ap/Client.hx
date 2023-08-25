@@ -204,46 +204,61 @@ class Client {
 		@param value The new value for the key.
 		@param original_value The value the key had before it was updated.
 	**/
-	public var onSetReply(default, null) = new Event<(String, Dynamic, Dynamic)->Void>();
+	public var onSetReply(default, null) = new Event<(String, Dynamic, Dynamic) -> Void>();
 
 	/**
 		Called when an error occurs.
 		@param funcName The function where the error was caught.
 		@param data The error data.
 	**/
-	public var onThrow(default, null) = new Event<(String, Dynamic)->Void>();
+	public var onThrow(default, null) = new Event<(String, Dynamic) -> Void>();
 
 	inline function _hOnSocketConnected()
 		return onSocketConnected.dispatch();
+
 	inline function _hOnSocketDisconnected()
 		return onSocketDisconnected.dispatch();
+
 	inline function _hOnSlotConnected(slotData)
 		return onSlotConnected.dispatch(slotData);
+
 	inline function _hOnSlotDisconnected()
 		return onSlotDisconnected.dispatch();
+
 	inline function _hOnSlotRefused(errors)
 		return onSlotRefused.dispatch(errors);
+
 	inline function _hOnItemsReceived(items)
 		return onItemsReceived.dispatch(items);
+
 	inline function _hOnLocationInfo(items)
 		return onLocationInfo.dispatch(items);
+
 	inline function _hOnDataPackageChanged(data)
 		return onDataPackageChanged.dispatch(data);
+
 	inline function _hOnPrint(text)
 		return onPrint.dispatch(text);
+
 	inline function _hOnPrintJson(data, item, receiving)
 		return onPrintJson.dispatch(data, item, receiving);
+
 	inline function _hOnBounced(data)
 		return onBounced.dispatch(data);
+
 	inline function _hOnLocationChecked(data)
 		return onLocationChecked.dispatch(data);
+
 	inline function _hOnRetrieved(keys)
 		return onRetrieved.dispatch(keys);
+
 	inline function _hOnSetReply(key, value, original_value)
 		return onSetReply.dispatch(key, value, original_value);
+
 	inline function _hOnThrow(funcName, data)
 		return onThrow.dispatch(funcName, data);
 	#else
+
 	/** Write-only. Called when the websocket connects to the server. **/
 	public var _hOnSocketConnected(null, default):Void->Void = null;
 
@@ -315,14 +330,14 @@ class Client {
 		@param value The new value for the key.
 		@param original_value The value the key had before it was updated.
 	**/
-	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic)->Void = null;
+	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic) -> Void = null;
 
 	/**
 		Write-only. Called when an error occurs.
 		@param funcName The function where the error was caught.
 		@param data The error data.
 	**/
-	public var _hOnThrow(null, default):(String, Dynamic)->Void = null;
+	public var _hOnThrow(null, default):(String, Dynamic) -> Void = null;
 	#end
 
 	/**
@@ -465,8 +480,10 @@ class Client {
 	}
 
 	public function get_hintCostPoints() {
-		if (hintCostPercent <= 0) return hintCostPercent;
-		if (locationCount <= 0) return locationCount;
+		if (hintCostPercent <= 0)
+			return hintCostPercent;
+		if (locationCount <= 0)
+			return locationCount;
 		return Math.floor(Math.max(1, hintCostPercent * locationCount / 100));
 	}
 
@@ -733,6 +750,9 @@ class Client {
 		#else
 		_sendMutex.acquire("process_queue");
 		#end
+		#if debug
+		trace('Sending ${_sendQueue.length} queued packet(s)');
+		#end
 		_ws.send(TJson.stringify(_sendQueue));
 		_sendQueue = [];
 		#if sys
@@ -746,12 +766,23 @@ class Client {
 		#else
 		_msgMutex.acquire("process_queue");
 		#end
-		if (_packetQueue.length > 0)
-			trace(_packetQueue.length + " packet(s) in queue; processing");
-		for (packet in _packetQueue) {
+		var grabQueue = _packetQueue.slice(0);
+		_packetQueue = [];
+		#if sys
+		_msgMutex.release();
+		#else
+		_msgMutex.release("process_queue");
+		#end
+
+		#if debug
+		if (grabQueue.length > 0)
+			trace('Processing ${grabQueue.length} received packet(s)');
+		#end
+
+		for (packet in grabQueue) {
 			switch (packet) {
-				case RoomInfo(version, _, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions, datapackage_checksums,
-					seed_name, time):
+				case RoomInfo(version, _, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions,
+					datapackage_checksums, seed_name, time):
 					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
 					seed = seed_name;
@@ -834,7 +865,7 @@ class Client {
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
-						//version: _dataPackage.version,
+						// version: _dataPackage.version,
 						games: _dataPackage.games.copy(),
 					};
 					for (game => gameData in pdata.games)
@@ -854,12 +885,14 @@ class Client {
 						_hOnPrintJson(data, item, receiving);
 
 				case Bounced(games, slots, tags, data):
-					if (games != null && !games.contains(game)) break;
-					if (slots != null && !slots.contains(slotnr)) break;
+					if (games != null && !games.contains(game))
+						break;
+					if (slots != null && !slots.contains(slotnr))
+						break;
 					// TODO: check to make sure tag matches
 					if (tags != null)
-					if (_hOnBounced != null)
-						_hOnBounced(data);
+						if (_hOnBounced != null)
+							_hOnBounced(data);
 
 				// BUG: "Cannot access non-static abstract field statically" on extracting "keys"
 				// case Retrieved(keys):
@@ -872,16 +905,11 @@ class Client {
 
 				case x:
 					#if debug
-					trace('unhandled cmd ${x.getName}');
+					trace('unhandled cmd ${x.getName()}');
 					#end
+					_hOnThrow("process_queue", x);
 			}
 		}
-		_packetQueue = [];
-		#if sys
-		_msgMutex.release();
-		#else
-		_msgMutex.release("process_queue");
-		#end
 	}
 
 	/** Resets the client to its original state. **/
@@ -896,19 +924,7 @@ class Client {
 		team = -1;
 		slotnr = -1;
 		_players = [];
-		clientStatus = ClientStatus.UNKNOWN;
-	}
-
-	/** Outputs a message to the terminal. **/
-	private inline function log(msg:String) {
-		trace(msg);
-	}
-
-	/** Outputs a message to the terminal, only if built in debug mode. **/
-	private inline function debug(msg:String) {
-		#if debug
-		trace(msg);
-		#end
+		this.clientStatus = ClientStatus.UNKNOWN;
 	}
 
 	/** Called when the websocket is opened. **/
@@ -1009,18 +1025,17 @@ class Client {
 			_ws.onclose = onclose;
 			_ws.onmessage = onmessage;
 			_ws.onerror = onerror;
-	
+
 			// BUG: this is wrong; it keeps trying to connect repeatedly
 			_lastSocketConnect = Timer.stamp();
 			_socketReconnectInterval *= 2;
 			if (_socketReconnectInterval > 15)
 				_socketReconnectInterval = 15;
 		} catch (e) {
-			// TODO: report error to main program
 			trace("Error connecting to AP socket: " + e);
 			if (_hOnThrow != null)
 				_hOnThrow("connect_socket", e);
-}
+		}
 	}
 
 	public function disconnect_socket() {
@@ -1035,35 +1050,36 @@ class Client {
 		@param color The color to convert.
 		@return The ANSI representation of the color.
 	**/
-	private function color2ansi(color:String):String {
-		// convert color to ansi color command
-		if (color == "red")
-			return "\x1b[31m";
-		if (color == "green")
-			return "\x1b[32m";
-		if (color == "yellow")
-			return "\x1b[33m";
-		if (color == "blue")
-			return "\x1b[34m";
-		if (color == "magenta")
-			return "\x1b[35m";
-		if (color == "cyan")
-			return "\x1b[36m";
-		if (color == "plum")
-			return "\x1b[38:5:219m";
-		if (color == "slateblue")
-			return "\x1b[38:5:62m";
-		if (color == "salmon")
-			return "\x1b[38:5:210m";
-		return "\x1b[0m";
-	}
+	private static function color2ansi(color:String):String
+		return switch (color) {
+			case "red": "\x1b[31m";
+			case "green": "\x1b[32m";
+			case "yellow": "\x1b[33m";
+			case "blue": "\x1b[34m";
+			case "magenta": "\x1b[35m";
+			case "cyan": "\x1b[36m";
+			case "plum": "\x1b[38:5:219m";
+			case "slateblue": "\x1b[38:5:62m";
+			case "salmon": "\x1b[38:5:210m";
+			default: "\x1b[0m";
+		}
 
 	/**
 		Strips ANSI escape codes from a string.
 		@param text The string to de-ANSIfy.
 		@return The de-ANSIfied string.
 	**/
-	private inline function deansify(text:String):String {
+	private static inline function deansify(text:String):String
 		return ~/\x1b\[[\d:]+m/g.replace(text, "");
+
+	/**
+		Changes a wss:// URI into ws://, and vice versa.
+		@param uri The URI to convert.
+		@return The URI with the opposite protocol. If the original URI does not have a protocol specified, a wss:// URI is returned.
+	**/
+	private static function toggleWSS(uri:String):String {
+		var isWSS = uri.startsWith("wss://");
+		var baseURI = (~/^wss?:\/\//).replace(uri, "");
+		return (isWSS ? "ws://" : "wss://") + baseURI;
 	}
 }
