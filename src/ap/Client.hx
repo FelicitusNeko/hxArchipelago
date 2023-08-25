@@ -103,6 +103,10 @@ class Client {
 	/** Read-only. The current UNIX time for the server, in seconds, extrapolated based on `localConnectTime`. **/
 	public var server_time(get, never):Float;
 
+	/** The current client tags. **/
+	@:isVar
+	public var tags(get, set):Array<String>;
+
 	/** The list of packets received since the last `poll()`. **/
 	private var _packetQueue:Array<IncomingPacket> = [];
 
@@ -354,24 +358,24 @@ class Client {
 		if (uri.length > 0) {
 			var p = uri.indexOf("://");
 			if (p < 0) {
-				uri = "ws://" + uri;
+				this.uri = "ws://" + uri;
 				p = 2;
 			} else
 				this.uri = uri;
 
-			var pColon = uri.indexOf(":", p + 3);
-			var pSlash = uri.indexOf("/", p + 3);
+			var pColon = this.uri.indexOf(":", p + 3);
+			var pSlash = this.uri.indexOf("/", p + 3);
 			if (pColon < 0 || (pSlash >= 0 && pColon > pSlash)) {
-				var tmp = uri.substr(0, pSlash) + ":38281";
+				var tmp = this.uri.substr(0, pSlash) + ":38281";
 				if (pSlash >= 0)
-					tmp += uri.substr(pSlash);
-				uri = tmp;
+					tmp += this.uri.substr(pSlash);
+				this.uri = tmp;
 			}
 		}
 
 		this.uuid = uuid;
 		this.game = game;
-		_dataPackage = {/*version: -1,*/ games: new DynamicAccess<GameData>()};
+		_dataPackage = {games: new DynamicAccess<GameData>()};
 		connect_socket();
 	}
 
@@ -381,8 +385,15 @@ class Client {
 		return clientStatus = status;
 	}
 
-	public function get_server_time():Float {
+	public inline function get_server_time()
 		return serverConnectTime + (Timer.stamp() - localConnectTime);
+
+	inline function get_tags()
+		return this.tags.slice(0);
+
+	function set_tags(tags) {
+		ConnectUpdate(null, tags);
+		return tags;
 	}
 
 	/**
@@ -788,6 +799,7 @@ class Client {
 					seed = seed_name;
 					hintCostPercent = hint_cost;
 					hintPoints *= location_check_points;
+					this.tags = tags;
 					if (state < State.ROOM_INFO)
 						state = State.ROOM_INFO;
 					if (_hOnRoomInfo != null)
@@ -857,15 +869,15 @@ class Client {
 					if (_hOnLocationInfo != null)
 						_hOnLocationInfo(locations);
 
-				case RoomUpdate(_, _, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
+				case RoomUpdate(_, tags, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
 					hintPoints = hint_points;
+					this.tags = tags;
 					if (_hOnLocationChecked != null)
 						_hOnLocationChecked(checked_locations);
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
-						// version: _dataPackage.version,
 						games: _dataPackage.games.copy(),
 					};
 					for (game => gameData in pdata.games)
@@ -889,10 +901,15 @@ class Client {
 						break;
 					if (slots != null && !slots.contains(slotnr))
 						break;
-					// TODO: check to make sure tag matches
-					if (tags != null)
-						if (_hOnBounced != null)
-							_hOnBounced(data);
+					if (tags != null) {
+						var tagMatch = false;
+						for (bTag in tags)
+							tagMatch = tagMatch || this.tags.contains(bTag);
+						if (!tagMatch)
+							break;
+					}
+					if (_hOnBounced != null)
+						_hOnBounced(data);
 
 				// BUG: "Cannot access non-static abstract field statically" on extracting "keys"
 				// case Retrieved(keys):
@@ -982,7 +999,6 @@ class Client {
 					if (_hOnThrow != null)
 						_hOnThrow("onmessage", e);
 				}
-				// _packetQueue = _packetQueue.concat(ne);
 				#if sys
 				_msgMutex.release();
 				#else
