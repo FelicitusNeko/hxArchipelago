@@ -16,6 +16,9 @@ import sys.thread.Mutex;
 #else
 import ap.PseudoMutex;
 #end
+#if (lime && !AP_NO_LIME)
+import lime.app.Event;
+#end
 
 using StringTools;
 using ap.Bitsets;
@@ -110,8 +113,137 @@ class Client {
 	private var _msgMutex = new PseudoMutex();
 	#end
 
-	// TODO: offer Lime-based event interface if Lime is being used
+	/** The list of packets queued to be sent since the last `poll()`. **/
+	private var _sendQueue:Array<OutgoingPacket> = [];
 
+	/** Locks access to `_sendQueue` to either the websocket client or the game. **/
+	#if sys
+	private var _sendMutex = new Mutex();
+	#else
+	private var _sendMutex = new PseudoMutex();
+	#end
+
+	#if (lime && !AP_NO_LIME)
+	/** Called when the websocket connects to the server. **/
+	public var onSocketConnected(default, null) = new Event<Void->Void>();
+
+	/** Called when the websocket disconnects from the server. **/
+	public var onSocketDisconnected(default, null) = new Event<Void->Void>();
+
+	/**
+		Called when the client connects to the slot.
+		@param slot_data The custom data sent from the server pertaining to the game, if any.
+	**/
+	public var onSlotConnected(default, null) = new Event<Dynamic->Void>();
+
+	/** Called when the websocket disconnects from the slot. **/
+	public var onSlotDisconnected(default, null) = new Event<Void->Void>();
+
+	/**
+		Called when an ItemsReceived packet is received.
+		@param errors The error code(s) received from the server.
+	**/
+	public var onSlotRefused(default, null) = new Event<Array<String>->Void>();
+
+	/** Called when a RoomInfo packet is received. **/
+	public var onRoomInfo(default, null) = new Event<Void->Void>();
+
+	/**
+		Called when an ItemsReceived packet is received.
+		@param items The list of items received.
+	**/
+	public var onItemsReceived(default, null) = new Event<Array<NetworkItem>>();
+
+	/**
+		Called when a LocationInfo packet is received.
+		@param items The list of items scouted.
+	**/
+	public var onLocationInfo(default, null) = new Event<Array<NetworkItem>>();
+
+	/**
+		Called when the Data Package has changed.
+		@param data The new content of the Data Package.
+	**/
+	public var onDataPackageChanged(default, null) = new Event<Array<DataPackageObject>>();
+
+	/**
+		Called when a Print packet is received.
+		@param text The text received.
+	**/
+	public var onPrint(default, null) = new Event<String->Void>();
+
+	/**
+		Called when a PrintJSON packet is received.
+		@param data The content of the message, in `JSONMessagePart`s.
+		@param item The item in question, if any.
+		@param receiving The ID of the receiving player, if any.
+	**/
+	public var onPrintJSON(default, null) = new Event<(Array<JSONMessagePart>, Null<NetworkItem>, Null<Int>) -> Void>();
+
+	/**
+		Called when a Bounced packet is received.
+		@param data The data contained in the packet.
+	**/
+	public var onBounced(default, null) = new Event<Dynamic->Void>();
+
+	/**
+		Called when locations have been checked.
+		@param ids The ID numbers for the locations checked.
+	**/
+	public var onLocationChecked(default, null) = new Event<Array<Int>->Void>();
+
+	/**
+		Called when data has been retrieved from a Get call.
+		@param keys A key-value collection containing all the values for the keys requested in the Get package.
+	**/
+	public var onRetrieved(default, null) = new Event<DynamicAccess<Dynamic>->Void>();
+
+	/**
+		Called when a Set operation has been processed, and a reply was requested.
+		@param key The key that was updated.
+		@param value The new value for the key.
+		@param original_value The value the key had before it was updated.
+	**/
+	public var onSetReply(default, null) = new Event<(String, Dynamic, Dynamic)->Void>();
+
+	/**
+		Called when an error occurs.
+		@param funcName The function where the error was caught.
+		@param data The error data.
+	**/
+	public var onThrow(default, null) = new Event<(String, Dynamic)->Void>();
+
+	inline function _hOnSocketConnected()
+		return onSocketConnected.dispatch();
+	inline function _hOnSocketDisconnected()
+		return onSocketDisconnected.dispatch();
+	inline function _hOnSlotConnected(slotData)
+		return onSlotConnected.dispatch(slotData);
+	inline function _hOnSlotDisconnected()
+		return onSlotDisconnected.dispatch();
+	inline function _hOnSlotRefused(errors)
+		return onSlotRefused.dispatch(errors);
+	inline function _hOnItemsReceived(items)
+		return onItemsReceived.dispatch(items);
+	inline function _hOnLocationInfo(items)
+		return onLocationInfo.dispatch(items);
+	inline function _hOnDataPackageChanged(data)
+		return onDataPackageChanged.dispatch(data);
+	inline function _hOnPrint(text)
+		return onPrint.dispatch(text);
+	inline function _hOnPrintJson(data, item, receiving)
+		return onPrintJson.dispatch(data, item, receiving);
+	inline function _hOnBounced(data)
+		return onBounced.dispatch(data);
+	inline function _hOnLocationChecked(data)
+		return onLocationChecked.dispatch(data);
+	inline function _hOnRetrieved(keys)
+		return onRetrieved.dispatch(keys);
+	inline function _hOnSetReply(key, value, original_value)
+		return onSetReply.dispatch(key, value, original_value);
+	inline function _hOnThrow(funcName, data)
+		return onThrow.dispatch(funcName, data);
+	#else
 	/** Write-only. Called when the websocket connects to the server. **/
 	public var _hOnSocketConnected(null, default):Void->Void = null;
 
@@ -119,12 +251,12 @@ class Client {
 	public var _hOnSocketDisconnected(null, default):Void->Void = null;
 
 	/**
-		Write-only. Called when the client connects to the server.
+		Write-only. Called when the client connects to the slot.
 		@param slot_data The custom data sent from the server pertaining to the game, if any.
 	**/
 	public var _hOnSlotConnected(null, default):Dynamic->Void = null;
 
-	/** Write-only. Called when the client disconnects from the server. **/
+	/** Write-only. Called when the client disconnects from the slot. **/
 	public var _hOnSlotDisconnected(null, default):Void->Void = null;
 
 	/** Write-only. Called if slot authentication fails. **/
@@ -140,7 +272,7 @@ class Client {
 	public var _hOnLocationInfo(null, default):Array<NetworkItem>->Void = null;
 
 	/**
-		Write-only. Called if the Data Package has changed.
+		Write-only. Called when the Data Package has changed.
 		@param data The new content of the Data Package.
 	**/
 	public var _hOnDataPackageChanged(null, default):DataPackageObject->Void = null;
@@ -186,6 +318,14 @@ class Client {
 	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic)->Void = null;
 
 	/**
+		Write-only. Called when an error occurs.
+		@param funcName The function where the error was caught.
+		@param data The error data.
+	**/
+	public var _hOnThrow(null, default):(String, Dynamic)->Void = null;
+	#end
+
+	/**
 		Creates a new instance of the Archipelago client.
 		@param uuid The unique ID for this client. Deprecated, and likely to be removed in a later version.
 		@param game The game to connect to.
@@ -216,7 +356,7 @@ class Client {
 
 		this.uuid = uuid;
 		this.game = game;
-		_dataPackage = {version: -1, games: new DynamicAccess<GameData>()};
+		_dataPackage = {/*version: -1,*/ games: new DynamicAccess<GameData>()};
 		connect_socket();
 	}
 
@@ -360,11 +500,11 @@ class Client {
 					if (color == null) {
 						if (node.found)
 							color = "green";
-						else if (node.flags.contains(FLAG_ADVANCEMENT))
+						else if (node.flags.isAdvancement)
 							color = "plum";
-						else if (node.flags.contains(FLAG_NEVER_EXCLUDE))
+						else if (node.flags.isNeverExclude)
 							color = "slateblue";
-						else if (node.flags.contains(FLAG_TRAP))
+						else if (node.flags.isTrap)
 							color = "salmon";
 						else
 							color = "cyan";
@@ -403,8 +543,18 @@ class Client {
 		#if debug
 		trace("> " + packet);
 		#end
-		// TODO: rather than send immediately, queue to send during next poll
-		_ws.send(TJson.stringify([packet]));
+
+		#if sys
+		_sendMutex.acquire();
+		#else
+		_sendMutex.acquire("internal_send");
+		#end
+		_sendQueue.push(packet);
+		#if sys
+		_sendMutex.release();
+		#else
+		_sendMutex.release("internal_send");
+		#end
 		return true;
 	}
 
@@ -455,10 +605,11 @@ class Client {
 		if (ver == null)
 			ver = {
 				major: 0,
-				minor: 3,
-				build: 7,
+				minor: 4,
+				build: 1,
 			};
 
+		// HACK: because "class" is getting dropped every time I try to process this with tink
 		var sendVer = new DynamicAccess<Dynamic>();
 		sendVer.set("major", ver.major);
 		sendVer.set("minor", ver.minor);
@@ -578,6 +729,19 @@ class Client {
 	/** Processes the packets currently in the queue. **/
 	private function process_queue() {
 		#if sys
+		_sendMutex.acquire();
+		#else
+		_sendMutex.acquire("process_queue");
+		#end
+		_ws.send(TJson.stringify(_sendQueue));
+		_sendQueue = [];
+		#if sys
+		_sendMutex.release();
+		#else
+		_sendMutex.release("process_queue");
+		#end
+
+		#if sys
 		_msgMutex.acquire();
 		#else
 		_msgMutex.acquire("process_queue");
@@ -632,6 +796,7 @@ class Client {
 
 				case Connected(team, slot, players, missing_locations, checked_locations, slot_data, slot_info, hint_points):
 					state = State.SLOT_CONNECTED;
+					this.clientStatus = ClientStatus.CONNECTED;
 					this.team = team;
 					slotnr = slot;
 					_players = [];
@@ -669,7 +834,7 @@ class Client {
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
-						version: _dataPackage.version,
+						//version: _dataPackage.version,
 						games: _dataPackage.games.copy(),
 					};
 					for (game => gameData in pdata.games)
@@ -705,9 +870,9 @@ class Client {
 					if (_hOnSetReply != null)
 						_hOnSetReply(key, value, original_value);
 
-				default:
+				case x:
 					#if debug
-					trace("unhandled cmd");
+					trace('unhandled cmd ${x.getName}');
 					#end
 			}
 		}
@@ -798,6 +963,8 @@ class Client {
 						_packetQueue.push(newPacket);
 				} catch (e) {
 					trace("EXCEPTION: " + e);
+					if (_hOnThrow != null)
+						_hOnThrow("onmessage", e);
 				}
 				// _packetQueue = _packetQueue.concat(ne);
 				#if sys
@@ -818,6 +985,8 @@ class Client {
 		#if debug
 		trace("onerror()");
 		#end
+		if (_hOnThrow != null)
+			_hOnThrow("onerror", e);
 	}
 
 	/** Creates a new websocket client and connects to the server. **/
@@ -849,7 +1018,9 @@ class Client {
 		} catch (e) {
 			// TODO: report error to main program
 			trace("Error connecting to AP socket: " + e);
-		}
+			if (_hOnThrow != null)
+				_hOnThrow("connect_socket", e);
+}
 	}
 
 	public function disconnect_socket() {
