@@ -4,8 +4,8 @@
   "license": "MIT",
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
-  "version": "0.7.0",
-  "releasenote": "Use tink_json instead of json2object",
+  "version": "0.8.0",
+  "releasenote": "updates for server compatibility for AP 0.4.2",
   "contributors": ["FelicitusNeko"],
   "dependencies": {
     "hxWebSockets": "",
