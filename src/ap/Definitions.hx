@@ -1,8 +1,7 @@
 package ap;
 
 /** The current connection state of the Archipelago client. **/
-@:enum
-abstract State(Int) {
+enum abstract State(Int) {
 	/** The client is not connected. **/
 	var DISCONNECTED = 0;
 	/** The client is in the process of connecting. **/
@@ -14,17 +13,23 @@ abstract State(Int) {
 	/** The client has connected and authenticated to the server. **/
 	var SLOT_CONNECTED = 4;
 
-	@:op(A < B) static function lt(a:State, b:State):Bool;
+	@:op(A < B)
+	static function lt(a:State, b:State):Bool;
 
-	@:op(A <= B) static function lte(a:State, b:State):Bool;
+	@:op(A <= B)
+	static function lte(a:State, b:State):Bool;
 
-	@:op(A > B) static function gt(a:State, b:State):Bool;
+	@:op(A > B)
+	static function gt(a:State, b:State):Bool;
 
-	@:op(A >= B) static function gte(a:State, b:State):Bool;
+	@:op(A >= B)
+	static function gte(a:State, b:State):Bool;
 
-	@:op(A == B) static function eq(a:State, b:State):Bool;
+	@:op(A == B)
+	static function eq(a:State, b:State):Bool;
 
-	@:op(A != B) static function ne(a:State, b:State):Bool;
+	@:op(A != B)
+	static function ne(a:State, b:State):Bool;
 }
 
 /** Indicates how to render the JSON packet(s) being processed. **/
