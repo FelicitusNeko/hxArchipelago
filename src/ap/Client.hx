@@ -1,5 +1,6 @@
 package ap;
 
+import haxe.Exception;
 import ap.Definitions;
 import ap.PacketTypes;
 import haxe.DynamicAccess;
@@ -104,8 +105,9 @@ class Client {
 	public var server_time(get, never):Float;
 
 	/** The current client tags. **/
-	@:isVar
 	public var tags(get, set):Array<String>;
+
+	private var _tags:Array<String> = [];
 
 	/** The list of packets received since the last `poll()`. **/
 	private var _packetQueue:Array<IncomingPacket> = [];
@@ -389,7 +391,7 @@ class Client {
 		return serverConnectTime + (Timer.stamp() - localConnectTime);
 
 	inline function get_tags()
-		return this.tags.slice(0);
+		return _tags.slice(0);
 
 	function set_tags(tags) {
 		ConnectUpdate(null, tags);
@@ -568,6 +570,12 @@ class Client {
 		@return Whether the operation was successful.
 	**/
 	private inline function InternalSend(packet:OutgoingPacket):Bool {
+		if (packet == null) {
+			if (_hOnThrow != null)
+				_hOnThrow("InternalSend", new Exception("Something tried to queue a null packet"));
+			return false;
+		}
+
 		#if debug
 		trace("> " + packet);
 		#end
@@ -622,14 +630,14 @@ class Client {
 		@param password The password for this multiworld, if any.
 		@param items_handling The flags regarding how item processing will be handled.
 		@param tags The capability tags for this session. Defaults to `[]`.
-		@param ver The minimum version number for this client. Currently defaults to 0.3.2; later versions may change this.
+		@param ver The minimum version number for this client. Currently defaults to 0.4.1; later versions may change this.
 	**/
 	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:NetworkVersion):Bool {
 		if (state < State.SOCKET_CONNECTED)
 			return false;
 
 		if (tags == null)
-			tags = [];
+			_tags = [];
 		if (ver == null)
 			ver = {
 				major: 0,
@@ -659,15 +667,8 @@ class Client {
 	public function ConnectUpdate(?items_handling:Int, ?tags:Array<String>):Bool {
 		if (items_handling == null && tags == null)
 			return false;
-		var packet:Dynamic = {
-			cmd: "ConnectUpdate"
-		};
-		if (items_handling != null)
-			packet.items_handling = items_handling;
-		if (tags != null)
-			packet.tags = tags;
 
-		return InternalSend(packet);
+		return InternalSend(OutgoingPacket.ConnectUpdate(items_handling, tags));
 	}
 
 	/**
@@ -756,21 +757,23 @@ class Client {
 
 	/** Processes the packets currently in the queue. **/
 	private function process_queue() {
-		#if sys
-		_sendMutex.acquire();
-		#else
-		_sendMutex.acquire("process_queue");
-		#end
-		#if debug
-		trace('Sending ${_sendQueue.length} queued packet(s)');
-		#end
-		_ws.send(TJson.stringify(_sendQueue));
-		_sendQueue = [];
-		#if sys
-		_sendMutex.release();
-		#else
-		_sendMutex.release("process_queue");
-		#end
+		if (_sendQueue.length > 0) {
+			#if sys
+			_sendMutex.acquire();
+			#else
+			_sendMutex.acquire("process_queue");
+			#end
+			#if debug
+			trace('Sending ${_sendQueue.length} queued packet(s)');
+			#end
+			_ws.send(TJson.stringify(_sendQueue/*.filter(i -> i != null)*/));
+			_sendQueue = [];
+			#if sys
+			_sendMutex.release();
+			#else
+			_sendMutex.release("process_queue");
+			#end
+		}
 
 		#if sys
 		_msgMutex.acquire();
@@ -799,7 +802,7 @@ class Client {
 					seed = seed_name;
 					hintCostPercent = hint_cost;
 					hintPoints *= location_check_points;
-					this.tags = tags;
+					_tags = tags;
 					if (state < State.ROOM_INFO)
 						state = State.ROOM_INFO;
 					if (_hOnRoomInfo != null)
@@ -872,7 +875,7 @@ class Client {
 				case RoomUpdate(_, tags, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
 					hintPoints = hint_points;
-					this.tags = tags;
+					_tags = tags;
 					if (_hOnLocationChecked != null)
 						_hOnLocationChecked(checked_locations);
 
