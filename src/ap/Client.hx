@@ -101,6 +101,9 @@ class Client {
 	/** Read-only. A local timestamp representing when the connection was established. **/
 	public var localConnectTime(default, null):Float = 0;
 
+	/** Read-only. The number of times connection has been attempted. Will be reset to 0 when connected. **/
+	public var connectAttempts(default, null) = 0;
+
 	/** Read-only. The current UNIX time for the server, in seconds, extrapolated based on `localConnectTime`. **/
 	public var server_time(get, never):Float;
 
@@ -266,43 +269,43 @@ class Client {
 	#else
 
 	/** Write-only. Called when the websocket connects to the server. **/
-	public var _hOnSocketConnected(null, default):Void->Void = null;
+	public var _hOnSocketConnected(null, default):Void->Void = () -> {};
 
 	/** Write-only. Called when the websocket disconnects from the server. **/
-	public var _hOnSocketDisconnected(null, default):Void->Void = null;
+	public var _hOnSocketDisconnected(null, default):Void->Void = () -> {};
 
 	/**
 		Write-only. Called when the client connects to the slot.
 		@param slot_data The custom data sent from the server pertaining to the game, if any.
 	**/
-	public var _hOnSlotConnected(null, default):Dynamic->Void = null;
+	public var _hOnSlotConnected(null, default):Dynamic->Void = (_) -> {};
 
 	/** Write-only. Called when the client disconnects from the slot. **/
-	public var _hOnSlotDisconnected(null, default):Void->Void = null;
+	public var _hOnSlotDisconnected(null, default):Void->Void = () -> {};
 
 	/** Write-only. Called if slot authentication fails. **/
-	public var _hOnSlotRefused(null, default):Array<String>->Void = null;
+	public var _hOnSlotRefused(null, default):Array<String>->Void = (_) -> {};
 
 	/** Write-only. Called when a RoomInfo packet is received. **/
-	public var _hOnRoomInfo(null, default):Void->Void = null;
+	public var _hOnRoomInfo(null, default):Void->Void = () -> {};
 
 	/** Write-only. Called when an ItemsReceived packet is received. **/
-	public var _hOnItemsReceived(null, default):Array<NetworkItem>->Void = null;
+	public var _hOnItemsReceived(null, default):Array<NetworkItem>->Void = (_) -> {};
 
 	/** Write-only. Called when a LocationInfo packet is received. **/
-	public var _hOnLocationInfo(null, default):Array<NetworkItem>->Void = null;
+	public var _hOnLocationInfo(null, default):Array<NetworkItem>->Void = (_) -> {};
 
 	/**
 		Write-only. Called when the Data Package has changed.
 		@param data The new content of the Data Package.
 	**/
-	public var _hOnDataPackageChanged(null, default):DataPackageObject->Void = null;
+	public var _hOnDataPackageChanged(null, default):DataPackageObject->Void = (_) -> {};
 
 	/**
 		Write-only. Called when a Print packet is received.
 		@param text The text received.
 	**/
-	public var _hOnPrint(null, default):String->Void = null;
+	public var _hOnPrint(null, default):String->Void = (_) -> {};
 
 	/**
 		Write-only. Called when a PrintJSON packet is received.
@@ -310,25 +313,25 @@ class Client {
 		@param item The item in question, if any.
 		@param receiving The ID of the receiving player, if any.
 	**/
-	public var _hOnPrintJson(null, default):(Array<JSONMessagePart>, Null<NetworkItem>, Null<Int>) -> Void = null;
+	public var _hOnPrintJson(null, default):(Array<JSONMessagePart>, Null<NetworkItem>, Null<Int>) -> Void = (_, _, _) -> {};
 
 	/**
 		Write-only. Called when a Bounced packet is received.
 		@param data The data contained in the packet.
 	**/
-	public var _hOnBounced(null, default):Dynamic->Void = null;
+	public var _hOnBounced(null, default):Dynamic->Void = (_) -> {};
 
 	/**
 		Write-only. Called when locations have been checked.
 		@param ids The ID numbers for the locations checked.
 	**/
-	public var _hOnLocationChecked(null, default):Array<Int>->Void = null;
+	public var _hOnLocationChecked(null, default):Array<Int>->Void = (_) -> {};
 
 	/**
 		Write-only. Called when data has been retrieved from a Get call.
 		@param keys A key-value collection containing all the values for the keys requested in the Get package.
 	**/
-	public var _hOnRetrieved(null, default):DynamicAccess<Dynamic>->Void = null;
+	public var _hOnRetrieved(null, default):DynamicAccess<Dynamic>->Void = (_) -> {};
 
 	/**
 		Write-only. Called when a Set operation has been processed, and a reply was requested.
@@ -336,14 +339,14 @@ class Client {
 		@param value The new value for the key.
 		@param original_value The value the key had before it was updated.
 	**/
-	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic) -> Void = null;
+	public var _hOnSetReply(null, default):(String, Dynamic, Dynamic) -> Void = (_, _, _) -> {};
 
 	/**
 		Write-only. Called when an error occurs.
 		@param funcName The function where the error was caught.
 		@param data The error data.
 	**/
-	public var _hOnThrow(null, default):(String, Dynamic) -> Void = null;
+	public var _hOnThrow(null, default):(String, Dynamic) -> Void = (_, _) -> {};
 	#end
 
 	/**
@@ -571,8 +574,7 @@ class Client {
 	**/
 	private inline function InternalSend(packet:OutgoingPacket):Bool {
 		if (packet == null) {
-			if (_hOnThrow != null)
-				_hOnThrow("InternalSend", new Exception("Something tried to queue a null packet"));
+			_hOnThrow("InternalSend", new Exception("Something tried to queue a null packet"));
 			return false;
 		}
 
@@ -805,8 +807,7 @@ class Client {
 					_tags = tags;
 					if (state < State.ROOM_INFO)
 						state = State.ROOM_INFO;
-					if (_hOnRoomInfo != null)
-						_hOnRoomInfo();
+					_hOnRoomInfo();
 
 					dataPackageValid = true;
 					var include:Array<String> = [];
@@ -837,10 +838,10 @@ class Client {
 					#end
 
 				case ConnectionRefused(errors):
-					if (_hOnSlotRefused != null)
-						_hOnSlotRefused(errors);
+					_hOnSlotRefused(errors);
 
 				case Connected(team, slot, players, missing_locations, checked_locations, slot_data, slot_info, hint_points):
+					connectAttempts = 0;
 					state = State.SLOT_CONNECTED;
 					this.clientStatus = ClientStatus.CONNECTED;
 					this.team = team;
@@ -855,29 +856,24 @@ class Client {
 							alias: player.alias,
 							name: player.name
 						});
-					if (_hOnSlotConnected != null)
-						_hOnSlotConnected(slot_data);
+					_hOnSlotConnected(slot_data);
 					// TODO: [upstream] store checked/missing locations
-					if (_hOnLocationChecked != null)
-						_hOnLocationChecked(checked_locations);
+					_hOnLocationChecked(checked_locations);
 
 				case ReceivedItems(index, items):
 					var index:Int = index;
 					for (item in items)
 						item.index = index++;
-					if (_hOnItemsReceived != null)
-						_hOnItemsReceived(items);
+					_hOnItemsReceived(items);
 
 				case LocationInfo(locations):
-					if (_hOnLocationInfo != null)
-						_hOnLocationInfo(locations);
+					_hOnLocationInfo(locations);
 
 				case RoomUpdate(_, tags, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
 					// TODO: [upstream] store checked/missing locations
 					hintPoints = hint_points;
 					_tags = tags;
-					if (_hOnLocationChecked != null)
-						_hOnLocationChecked(checked_locations);
+					_hOnLocationChecked(checked_locations);
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
@@ -888,16 +884,13 @@ class Client {
 					dataPackageValid = false;
 					set_data_package(data);
 					dataPackageValid = true;
-					if (_hOnDataPackageChanged != null)
-						_hOnDataPackageChanged(_dataPackage);
+					_hOnDataPackageChanged(_dataPackage);
 
 				case Print(text):
-					if (_hOnPrint != null)
-						_hOnPrint(text);
+					_hOnPrint(text);
 
 				case PrintJSON(data, type, receiving, item, found, team, slot, message, tags, countdown):
-					if (_hOnPrintJson != null)
-						_hOnPrintJson(data, item, receiving);
+					_hOnPrintJson(data, item, receiving);
 
 				case Bounced(games, slots, tags, data):
 					if (games != null && !games.contains(game))
@@ -911,17 +904,14 @@ class Client {
 						if (!tagMatch)
 							break;
 					}
-					if (_hOnBounced != null)
-						_hOnBounced(data);
+					_hOnBounced(data);
 
 				// BUG: "Cannot access non-static abstract field statically" on extracting "keys"
 				// case Retrieved(keys):
-				// 	if (_hOnRetrieved != null)
-				// 		_hOnRetrieved(keys);
+				//	_hOnRetrieved(keys);
 
 				case SetReply(key, value, original_value):
-					if (_hOnSetReply != null)
-						_hOnSetReply(key, value, original_value);
+					_hOnSetReply(key, value, original_value);
 
 				case x:
 					#if debug
@@ -944,6 +934,7 @@ class Client {
 		team = -1;
 		slotnr = -1;
 		_players = [];
+		connectAttempts = 0;
 		this.clientStatus = ClientStatus.UNKNOWN;
 	}
 
@@ -954,8 +945,7 @@ class Client {
 		#end
 		trace("Server connected");
 		state = State.SOCKET_CONNECTED;
-		if (_hOnSocketConnected != null)
-			_hOnSocketConnected();
+		_hOnSocketConnected();
 		_socketReconnectInterval = 1.5;
 	}
 
@@ -967,9 +957,9 @@ class Client {
 		if (state > State.SOCKET_CONNECTING) {
 			trace("Server disconnected");
 			state = State.DISCONNECTED;
-			if (_hOnSocketDisconnected != null)
-				_hOnSocketDisconnected();
+			_hOnSocketDisconnected();
 		}
+		_ws.state
 		state = State.DISCONNECTED;
 		seed = "";
 	}
@@ -999,8 +989,7 @@ class Client {
 						_packetQueue.push(newPacket);
 				} catch (e) {
 					trace("EXCEPTION: " + e);
-					if (_hOnThrow != null)
-						_hOnThrow("onmessage", e);
+					_hOnThrow("onmessage", e);
 				}
 				#if sys
 				_msgMutex.release();
@@ -1020,8 +1009,7 @@ class Client {
 		#if debug
 		trace("onerror()");
 		#end
-		if (_hOnThrow != null)
-			_hOnThrow("onerror", e);
+		_hOnThrow("onerror", e);
 	}
 
 	/** Creates a new websocket client and connects to the server. **/
@@ -1039,21 +1027,21 @@ class Client {
 		#end
 
 		try {
-			_ws = new WebSocket(uri);
-			_ws.onopen = onopen;
-			_ws.onclose = onclose;
-			_ws.onmessage = onmessage;
-			_ws.onerror = onerror;
-
 			// BUG: this is wrong; it keeps trying to connect repeatedly
 			_lastSocketConnect = Timer.stamp();
 			_socketReconnectInterval *= 2;
 			if (_socketReconnectInterval > 15)
 				_socketReconnectInterval = 15;
+			connectAttempts++;
+
+			_ws = new WebSocket(uri);
+			_ws.onopen = onopen;
+			_ws.onclose = onclose;
+			_ws.onmessage = onmessage;
+			_ws.onerror = onerror;
 		} catch (e) {
 			trace("Error connecting to AP socket: " + e);
-			if (_hOnThrow != null)
-				_hOnThrow("connect_socket", e);
+			_hOnThrow("connect_socket", e);
 		}
 	}
 
