@@ -4,8 +4,8 @@
   "license": "MIT",
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
-  "version": "0.8.1",
-  "releasenote": "fixes crash bug on connect, poll() sending empty packets to server",
+  "version": "0.8.2",
+  "releasenote": "fixes reconnect bug, downgrades WSS→WS as needed (not yet the reverse)",
   "contributors": ["FelicitusNeko"],
   "dependencies": {
     "hxWebSockets": "",
