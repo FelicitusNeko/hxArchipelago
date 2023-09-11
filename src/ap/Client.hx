@@ -748,9 +748,10 @@ class Client {
 		if (state < State.SOCKET_CONNECTED) {
 			var t = Timer.stamp();
 			if (t - _lastSocketConnect > _socketReconnectInterval) {
-				if (state != State.DISCONNECTED)
+				if (state != State.DISCONNECTED) {
+					_hOnThrow("poll", new Exception("Connect timed out"));
 					trace("Connect timed out. Retrying.");
-				else
+				} else
 					trace("Reconnecting to server");
 				connect_socket();
 			}
@@ -768,7 +769,7 @@ class Client {
 			#if debug
 			trace('Sending ${_sendQueue.length} queued packet(s)');
 			#end
-			_ws.send(TJson.stringify(_sendQueue/*.filter(i -> i != null)*/));
+			_ws.send(TJson.stringify(_sendQueue /*.filter(i -> i != null)*/));
 			_sendQueue = [];
 			#if sys
 			_sendMutex.release();
@@ -959,9 +960,9 @@ class Client {
 			state = State.DISCONNECTED;
 			_hOnSocketDisconnected();
 		}
-		_ws.state
 		state = State.DISCONNECTED;
 		seed = "";
+		_ws.close();
 	}
 
 	/**
@@ -1027,7 +1028,6 @@ class Client {
 		#end
 
 		try {
-			// BUG: this is wrong; it keeps trying to connect repeatedly
 			_lastSocketConnect = Timer.stamp();
 			_socketReconnectInterval *= 2;
 			if (_socketReconnectInterval > 15)
@@ -1039,9 +1039,15 @@ class Client {
 			_ws.onclose = onclose;
 			_ws.onmessage = onmessage;
 			_ws.onerror = onerror;
-		} catch (e) {
-			trace("Error connecting to AP socket: " + e);
+		} catch (e:Exception) {
+			trace("Error connecting to AP socket", e);
 			_hOnThrow("connect_socket", e);
+			if (e.message == "ssl network error" && uri.startsWith("wss:")) { // TODO: check what happens if you try to connect WS client to WSS server
+				#if debug
+				trace("WSS connection not found; auto-switching to WS");
+				#end
+				uri = toggleWSS(uri);
+			}
 		}
 	}
 
