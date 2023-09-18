@@ -15,7 +15,7 @@ import sys.FileSystem;
 import sys.io.File;
 import sys.thread.Mutex;
 #else
-import ap.PseudoMutex;
+import ap.PseudoMutex as Mutex;
 #end
 #if (lime && !AP_NO_LIME)
 import lime.app.Event;
@@ -116,21 +116,16 @@ class Client {
 	private var _packetQueue:Array<IncomingPacket> = [];
 
 	/** Locks access to `_packetQueue` to either the websocket client or the game. **/
-	#if sys
 	private var _msgMutex = new Mutex();
-	#else
-	private var _msgMutex = new PseudoMutex();
-	#end
 
 	/** The list of packets queued to be sent since the last `poll()`. **/
 	private var _sendQueue:Array<OutgoingPacket> = [];
 
 	/** Locks access to `_sendQueue` to either the websocket client or the game. **/
-	#if sys
 	private var _sendMutex = new Mutex();
-	#else
-	private var _sendMutex = new PseudoMutex();
-	#end
+
+	private var _hasTriedWSS = false;
+	private var _hasBeenConnected = false;
 
 	#if (lime && !AP_NO_LIME)
 	/** Called when the websocket connects to the server. **/
@@ -801,6 +796,7 @@ class Client {
 				case RoomInfo(version, _, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions,
 					datapackage_checksums, seed_name, time):
 					localConnectTime = Timer.stamp();
+					_hasBeenConnected = true;
 					serverConnectTime = time;
 					seed = seed_name;
 					hintCostPercent = hint_cost;
@@ -960,6 +956,12 @@ class Client {
 			state = State.DISCONNECTED;
 			_hOnSocketDisconnected();
 		}
+		if (!_hasBeenConnected && !_hasTriedWSS) {
+			#if debug
+			trace("Disconnected immediately; may be a WSS socket (upgrading)");
+			#end
+			uri = toggleWSS(uri);
+		}
 		state = State.DISCONNECTED;
 		seed = "";
 		_ws.close();
@@ -1046,6 +1048,7 @@ class Client {
 				#if debug
 				trace("WSS connection not found; auto-switching to WS");
 				#end
+				_hasTriedWSS = true;
 				uri = toggleWSS(uri);
 			}
 		}
