@@ -156,19 +156,19 @@ class Client {
 		Called when an ItemsReceived packet is received.
 		@param items The list of items received.
 	**/
-	public var onItemsReceived(default, null) = new Event<Array<NetworkItem>>();
+	public var onItemsReceived(default, null) = new Event<Array<NetworkItem>->Void>();
 
 	/**
 		Called when a LocationInfo packet is received.
 		@param items The list of items scouted.
 	**/
-	public var onLocationInfo(default, null) = new Event<Array<NetworkItem>>();
+	public var onLocationInfo(default, null) = new Event<Array<NetworkItem>->Void>();
 
 	/**
 		Called when the Data Package has changed.
 		@param data The new content of the Data Package.
 	**/
-	public var onDataPackageChanged(default, null) = new Event<Array<DataPackageObject>>();
+	public var onDataPackageChanged(default, null) = new Event<Array<DataPackageObject>->Void>();
 
 	/**
 		Called when a Print packet is received.
