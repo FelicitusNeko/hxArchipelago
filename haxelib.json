@@ -10,7 +10,8 @@
   "dependencies": {
     "hxWebSockets": "",
     "helder.set": "",
-    "tink_json": ""
+    "tink_json": "",
+    "haxe-concurrent": ""
   },
   "classPath": "src"
 }

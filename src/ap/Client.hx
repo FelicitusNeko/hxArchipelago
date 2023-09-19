@@ -1,9 +1,10 @@
 package ap;
 
-import haxe.Exception;
+import hx.concurrent.lock.RLock;
 import ap.Definitions;
 import ap.PacketTypes;
 import haxe.DynamicAccess;
+import haxe.Exception;
 import haxe.exceptions.NotImplementedException;
 import haxe.Timer;
 import helder.Set;
@@ -13,9 +14,6 @@ import tink.Json as TJson;
 #if sys
 import sys.FileSystem;
 import sys.io.File;
-import sys.thread.Mutex;
-#else
-import ap.PseudoMutex as Mutex;
 #end
 #if (lime && !AP_NO_LIME)
 import lime.app.Event;
@@ -116,13 +114,13 @@ class Client {
 	private var _packetQueue:Array<IncomingPacket> = [];
 
 	/** Locks access to `_packetQueue` to either the websocket client or the game. **/
-	private var _msgMutex = new Mutex();
+	private var _msgLock = new RLock();
 
 	/** The list of packets queued to be sent since the last `poll()`. **/
 	private var _sendQueue:Array<OutgoingPacket> = [];
 
 	/** Locks access to `_sendQueue` to either the websocket client or the game. **/
-	private var _sendMutex = new Mutex();
+	private var _sendLock = new RLock();
 
 	private var _hasTriedWSS = false;
 	private var _hasBeenConnected = false;
@@ -577,17 +575,8 @@ class Client {
 		trace("> " + packet);
 		#end
 
-		#if sys
-		_sendMutex.acquire();
-		#else
-		_sendMutex.acquire("internal_send");
-		#end
-		_sendQueue.push(packet);
-		#if sys
-		_sendMutex.release();
-		#else
-		_sendMutex.release("internal_send");
-		#end
+		_sendLock.execute(() -> _sendQueue.push(packet));
+
 		return true;
 	}
 
@@ -756,35 +745,19 @@ class Client {
 	/** Processes the packets currently in the queue. **/
 	private function process_queue() {
 		if (_sendQueue.length > 0) {
-			#if sys
-			_sendMutex.acquire();
-			#else
-			_sendMutex.acquire("process_queue");
-			#end
-			#if debug
-			trace('Sending ${_sendQueue.length} queued packet(s)');
-			#end
-			_ws.send(TJson.stringify(_sendQueue /*.filter(i -> i != null)*/));
-			_sendQueue = [];
-			#if sys
-			_sendMutex.release();
-			#else
-			_sendMutex.release("process_queue");
-			#end
+			_sendLock.execute(() -> {
+				#if debug
+				trace('Sending ${_sendQueue.length} queued packet(s)');
+				#end
+				_ws.send(TJson.stringify(_sendQueue));
+				_sendQueue = [];
+			});
 		}
 
-		#if sys
-		_msgMutex.acquire();
-		#else
-		_msgMutex.acquire("process_queue");
-		#end
+		_msgLock.acquire();
 		var grabQueue = _packetQueue.slice(0);
 		_packetQueue = [];
-		#if sys
-		_msgMutex.release();
-		#else
-		_msgMutex.release("process_queue");
-		#end
+		_msgLock.release();
 
 		#if debug
 		if (grabQueue.length > 0)
@@ -977,11 +950,7 @@ class Client {
 		#end
 		switch (msg) {
 			case StrMessage(content):
-				#if sys
-				_msgMutex.acquire();
-				#else
-				_msgMutex.acquire("onmessage");
-				#end
+				_msgLock.acquire();
 				try {
 					#if debug
 					trace(content);
@@ -994,11 +963,7 @@ class Client {
 					trace("EXCEPTION: " + e);
 					_hOnThrow("onmessage", e);
 				}
-				#if sys
-				_msgMutex.release();
-				#else
-				_msgMutex.release("onmessage");
-				#end
+				_msgLock.release();
 
 			default:
 		}
