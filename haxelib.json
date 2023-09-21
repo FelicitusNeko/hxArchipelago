@@ -5,7 +5,7 @@
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
   "version": "0.8.2",
-  "releasenote": "fixes reconnect bug, downgrades WSS→WS as needed (not yet the reverse)",
+  "releasenote": "fixes reconnect bug, fixes html5 freeze, auto WS↔WSS as needed",
   "contributors": ["FelicitusNeko"],
   "dependencies": {
     "hxWebSockets": "",
