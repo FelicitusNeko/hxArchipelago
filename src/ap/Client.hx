@@ -166,7 +166,7 @@ class Client {
 		Called when the Data Package has changed.
 		@param data The new content of the Data Package.
 	**/
-	public var onDataPackageChanged(default, null) = new Event<Array<DataPackageObject>->Void>();
+	public var onDataPackageChanged(default, null) = new Event<DataPackageObject->Void>();
 
 	/**
 		Called when a Print packet is received.
@@ -230,6 +230,9 @@ class Client {
 	inline function _hOnSlotRefused(errors)
 		return onSlotRefused.dispatch(errors);
 
+	inline function _hOnRoomInfo()
+		return onRoomInfo.dispatch();
+
 	inline function _hOnItemsReceived(items)
 		return onItemsReceived.dispatch(items);
 
@@ -242,8 +245,8 @@ class Client {
 	inline function _hOnPrint(text)
 		return onPrint.dispatch(text);
 
-	inline function _hOnPrintJson(data, item, receiving)
-		return onPrintJson.dispatch(data, item, receiving);
+	inline function _hOnPrintJSON(data, item, receiving)
+		return onPrintJSON.dispatch(data, item, receiving);
 
 	inline function _hOnBounced(data)
 		return onBounced.dispatch(data);
@@ -257,7 +260,7 @@ class Client {
 	inline function _hOnSetReply(key, value, original_value)
 		return onSetReply.dispatch(key, value, original_value);
 
-	inline function _hOnThrow(funcName, data)
+	inline function _hOnThrow(funcName, data:Dynamic)
 		return onThrow.dispatch(funcName, data);
 	#else
 
@@ -860,7 +863,7 @@ class Client {
 					_hOnPrint(text);
 
 				case PrintJSON(data, type, receiving, item, found, team, slot, message, tags, countdown):
-					_hOnPrintJson(data, item, receiving);
+					_hOnPrintJSON(data, item, receiving);
 
 				case Bounced(games, slots, tags, data):
 					if (games != null && !games.contains(game))
