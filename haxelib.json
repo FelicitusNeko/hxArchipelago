@@ -4,8 +4,8 @@
   "license": "MIT",
   "tags": ["ws", "archipelago"],
   "description": "Haxe client for Archipelago Multiworld",
-  "version": "0.8.2",
-  "releasenote": "fixes reconnect bug, fixes html5 freeze, auto WS↔WSS as needed",
+  "version": "0.8.3",
+  "releasenote": "fixes a few incorrect Lime events",
   "contributors": ["FelicitusNeko"],
   "dependencies": {
     "hxWebSockets": "",
