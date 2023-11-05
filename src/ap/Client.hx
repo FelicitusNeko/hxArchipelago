@@ -309,7 +309,7 @@ class Client {
 		@param item The item in question, if any.
 		@param receiving The ID of the receiving player, if any.
 	**/
-	public var _hOnPrintJson(null, default):(Array<JSONMessagePart>, Null<NetworkItem>, Null<Int>) -> Void = (_, _, _) -> {};
+	public var _hOnPrintJSON(null, default):(Array<JSONMessagePart>, Null<NetworkItem>, Null<Int>) -> Void = (_, _, _) -> {};
 
 	/**
 		Write-only. Called when a Bounced packet is received.
@@ -1012,7 +1012,7 @@ class Client {
 		} catch (e:Exception) {
 			trace("Error connecting to AP socket", e);
 			_hOnThrow("connect_socket", e);
-			if (e.message == "ssl network error" && uri.startsWith("wss:")) { // TODO: check what happens if you try to connect WS client to WSS server
+			if (e.message == "ssl network error" && uri.startsWith("wss:")) {
 				#if debug
 				trace("WSS connection not found; auto-switching to WS");
 				#end
