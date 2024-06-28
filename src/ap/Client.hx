@@ -42,12 +42,6 @@ class Client {
 	/** The amount of time, in seconds, to wait before attempting to reconnect. **/
 	private var _socketReconnectInterval:Float = 1.5;
 
-	/** The location checks to be sent, accumulated while the client is not connected. **/
-	private var _checkQueue = new Set<Int>();
-
-	/** The location scouts to be sent, accumulated while the client is not connected. **/
-	private var _scoutQueue = new Set<Int>();
-
 	/** The list of players in this multiworld. **/
 	private var _players:Array<NetworkPlayer> = [];
 
@@ -56,6 +50,12 @@ class Client {
 
 	/** The dictionary to associate item IDs to names. **/
 	private var _items:Map<Int, String> = [];
+
+	/** The dictionary to associate location IDs to names specific to a game. **/
+	private var _gameLocations:Map<String, Map<Int, String>> = [];
+
+	/** The dictionary to associate item IDs to names specific to a game. **/
+	private var _gameItems:Map<String, Map<Int, String>> = [];
 
 	/** A copy of the Data Package used by the client. **/
 	private var _dataPackage:DataPackageObject;
@@ -71,6 +71,9 @@ class Client {
 
 	/** Read-only. The slot name the client is connected to. **/
 	public var slot(default, null):String = "";
+
+	/** Read-only. Whether the server is password-protected. **/
+	public var hasPassword(default, null):Bool = false;
 
 	/** Read-only. The team number the player belongs to. Currently unused. **/
 	public var team(default, null):Int = -1;
@@ -99,6 +102,15 @@ class Client {
 	/** Read-only. A local timestamp representing when the connection was established. **/
 	public var localConnectTime(default, null):Float = 0;
 
+	/** Read-only. The version of the AP server. **/
+	public var serverVersion(default, null):NetworkVersion;
+
+	/** Read-only. The list of checked location ids. **/
+	public var checkedLocations(get, never):Array<Int>;
+
+	/** Read-only. The list of unchecked location ids. **/
+	public var missingLocations(get, never):Array<Int>;
+
 	/** Read-only. The number of times connection has been attempted. Will be reset to 0 when connected. **/
 	public var connectAttempts(default, null) = 0;
 
@@ -108,26 +120,51 @@ class Client {
 	/** The current client tags. **/
 	public var tags(get, set):Array<String>;
 
+	/** Information about player slots in this multiworld. **/
+	private var _slotInfo:Map<Int, NetworkSlot>;
+
+	/** Internal copy of client tags. **/
 	private var _tags:Array<String> = [];
 
-	/** The list of packets received since the last `poll()`. **/
-	private var _packetQueue:Array<IncomingPacket> = [];
+	/** The set of location ids that have been checked. **/
+	private var _checkedLocations = new Set<Int>();
 
-	/** Locks access to `_packetQueue` to either the websocket client or the game. **/
-	private var _msgLock = new RLock();
+	/** The set of location ids that have not been checked. **/
+	private var _missingLocations = new Set<Int>();
 
-	/** The list of packets queued to be sent since the last `poll()`. **/
+	/** The list of packets received since the last call to `poll()`. **/
+	private var _recvQueue:Array<IncomingPacket> = [];
+
+	/** Locks access to `_recvQueue` to the thread currently accessing it. **/
+	private var _recvLock = new RLock();
+
+	/** The list of packets queued to be sent upon the next call to `poll()`. **/
 	private var _sendQueue:Array<OutgoingPacket> = [];
 
-	/** Locks access to `_sendQueue` to either the websocket client or the game. **/
+	/** Locks access to `_sendQueue` to the thread currently accessing it. **/
 	private var _sendLock = new RLock();
 
+	/** The list of checks and scouts which are queued to be sent when the connection is re-established. **/
+	private var _offlineQueue:Array<OfflineQueueType> = [];
+
+	/** Locks access to `_offlineQueue` to the thread currently accessing it. **/
+	private var _offlineLock = new RLock();
+
+	/** Whether the client has tried to connect to a WSS server. **/
 	private var _hasTriedWSS = false;
+
+	/** Whether the client has at any point succeeded in connecting to a slot. **/
 	private var _hasBeenConnected = false;
 
 	#if (lime && !AP_NO_LIME)
 	/** Called when the websocket connects to the server. **/
 	public var onSocketConnected(default, null) = new Event<Void->Void>();
+
+	/**
+		Called when the websocket reports an error.
+		@param error The reported error message.
+	**/
+	public var onSocketError(default, null) = new Event<String->Void>();
 
 	/** Called when the websocket disconnects from the server. **/
 	public var onSocketDisconnected(default, null) = new Event<Void->Void>();
@@ -138,14 +175,14 @@ class Client {
 	**/
 	public var onSlotConnected(default, null) = new Event<Dynamic->Void>();
 
-	/** Called when the websocket disconnects from the slot. **/
-	public var onSlotDisconnected(default, null) = new Event<Void->Void>();
-
 	/**
 		Called when an ItemsReceived packet is received.
 		@param errors The error code(s) received from the server.
 	**/
 	public var onSlotRefused(default, null) = new Event<Array<String>->Void>();
+
+	/** Called when the websocket disconnects from the slot. **/
+	public var onSlotDisconnected(default, null) = new Event<Void->Void>();
 
 	/** Called when a RoomInfo packet is received. **/
 	public var onRoomInfo(default, null) = new Event<Void->Void>();
@@ -218,17 +255,20 @@ class Client {
 	inline function _hOnSocketConnected()
 		return onSocketConnected.dispatch();
 
+	inline function _hOnSocketError(error)
+		return onSocketError.dispatch(error);
+
 	inline function _hOnSocketDisconnected()
 		return onSocketDisconnected.dispatch();
 
 	inline function _hOnSlotConnected(slotData)
 		return onSlotConnected.dispatch(slotData);
 
-	inline function _hOnSlotDisconnected()
-		return onSlotDisconnected.dispatch();
-
 	inline function _hOnSlotRefused(errors)
 		return onSlotRefused.dispatch(errors);
+
+	inline function _hOnSlotDisconnected()
+		return onSlotDisconnected.dispatch();
 
 	inline function _hOnRoomInfo()
 		return onRoomInfo.dispatch();
@@ -267,6 +307,12 @@ class Client {
 	/** Write-only. Called when the websocket connects to the server. **/
 	public var _hOnSocketConnected(null, default):Void->Void = () -> {};
 
+	/**
+		Write-only. Called when the websocket reports an error.
+		@param error The reported error message.
+	**/
+	public var _hOnSocketError(null, default):String->Void = (_) -> {};
+
 	/** Write-only. Called when the websocket disconnects from the server. **/
 	public var _hOnSocketDisconnected(null, default):Void->Void = () -> {};
 
@@ -276,11 +322,11 @@ class Client {
 	**/
 	public var _hOnSlotConnected(null, default):Dynamic->Void = (_) -> {};
 
-	/** Write-only. Called when the client disconnects from the slot. **/
-	public var _hOnSlotDisconnected(null, default):Void->Void = () -> {};
-
 	/** Write-only. Called if slot authentication fails. **/
 	public var _hOnSlotRefused(null, default):Array<String>->Void = (_) -> {};
+
+	/** Write-only. Called when the client disconnects from the slot. **/
+	public var _hOnSlotDisconnected(null, default):Void->Void = () -> {};
 
 	/** Write-only. Called when a RoomInfo packet is received. **/
 	public var _hOnRoomInfo(null, default):Void->Void = () -> {};
@@ -352,19 +398,20 @@ class Client {
 		@param uri The server to connect to, including host name and port.
 	**/
 	public function new(uuid:String, game:String, uri:String = "ws://localhost:38281") {
-		#if debug
-		trace("Creating new AP client to " + uri);
-		#end
-
 		if (uri.length > 0) {
 			var p = uri.indexOf("://");
 			if (p < 0) {
+				#if AP_PREFER_UNENCRYPTED
 				this.uri = "ws://" + uri;
 				p = 2;
+				#else
+				this.uri = "wss://" + uri;
+				p = 3;
+				#end
 			} else
 				this.uri = uri;
 
-			var pColon = this.uri.indexOf(":", p + 3);
+			var pColon = this.uri.indexOf(":", p + 3); // FIXME: [upstream] this fails for IPv6 addresses
 			var pSlash = this.uri.indexOf("/", p + 3);
 			if (pColon < 0 || (pSlash >= 0 && pColon > pSlash)) {
 				var tmp = this.uri.substr(0, pSlash) + ":38281";
@@ -373,6 +420,10 @@ class Client {
 				this.uri = tmp;
 			}
 		}
+
+		#if debug
+		trace("Creating new AP client to " + uri);
+		#end
 
 		this.uuid = uuid;
 		this.game = game;
@@ -397,19 +448,40 @@ class Client {
 		return tags;
 	}
 
+	function get_hintCostPoints() {
+		if (hintCostPercent <= 0)
+			return hintCostPercent;
+		if (locationCount <= 0)
+			return locationCount;
+		return Math.floor(Math.max(1, hintCostPercent * locationCount / 100));
+	}
+
+	inline function get_missingLocations()
+		return _missingLocations.toArray();
+
+	inline function get_checkedLocations()
+		return _checkedLocations.toArray();
+
 	/**
 		Sets the Data Package's data.
 		@param data The data to add to the Data Package.
 	**/
 	public function set_data_package(data:Dynamic) {
+		// TODO: APDataPackageStore??
 		if (!dataPackageValid && data.games) {
 			_dataPackage = data;
 			for (game => gamedata in _dataPackage.games) {
 				_dataPackage.games[game] = gamedata;
-				for (itemName => itemId in gamedata.item_name_to_id)
+				_gameItems.set(game, []);
+				_gameLocations.set(game, []);
+				for (itemName => itemId in gamedata.item_name_to_id) {
 					_items[itemId] = itemName;
-				for (locationName => locationId in gamedata.location_name_to_id)
+					_gameItems[game][itemId] = itemName;
+				}
+				for (locationName => locationId in gamedata.location_name_to_id) {
 					_locations[locationId] = locationName;
+					_gameLocations[game][locationId] = locationName;
+				}
 			}
 		}
 	}
@@ -442,6 +514,15 @@ class Client {
 		}
 		return true;
 	}
+	#else
+
+	/** Stub. Not available on this platform. **/
+	public function set_data_package_from_file(path:String)
+		return false;
+
+	/** Stub. Not available on this platform. **/
+	public function save_data_package(path:String)
+		return false;
 	#end
 
 	/**
@@ -459,22 +540,43 @@ class Client {
 	}
 
 	/**
+		Resolves a slot number into that player's game.
+		@param player The slot to look up.
+		@return The game attached to the given slot number, or a blank string if no such slot exists. For a slot number of 0, "Archipelago" is returned.
+	**/
+	public function get_player_game(player:Int):String {
+		if (player == 0)
+			return "Archipelago";
+		if (_slotInfo.exists(player))
+			return _slotInfo[player].game;
+		return "";
+	}
+
+	/**
 		Resolves a location ID into the name of that location.
 		@param code The location ID to look up.
+		@param game The game to which the location belongs. Defaults to a blank string, which will attempt to devine a location name which may be incorrect if there is an ID collision.
 		@return The name of the location attached to the given ID, or "Unknown" if it was not found.
 	**/
-	public function get_location_name(code:Int):String {
-		if (_locations.exists(code))
-			return _locations.get(code);
+	public function get_location_name(code:Int, game = ""):String {
+		if (game.length == 0) {
+			if (_locations.exists(code))
+				return _locations.get(code);
+		} else if (_gameLocations.exists(game) && _gameLocations[game].exists(code))
+			return _gameLocations[game][code];
 		return "Unknown";
 	}
 
 	/**
-		Resolves a location name into the ID of that location. Usage is not recommended.
+		Resolves a location name into the ID of that location.
+		@deprecated Usage is not recommended.
 		@param name The name of the location to look up.
+		@param game The game to which the location belongs. Defaults to a blank string, which will attempt to devine a location ID which may be incorrect if there is a name collision.
 		@return The ID associated with the location name, or `null` if it was not found.
 	**/
-	public function get_location_id(name:String):Null<Int> {
+	public function get_location_id(name:String, game = ""):Null<Int> {
+		if (game.length == 0)
+			game = this.game;
 		if (_dataPackage.games.exists(game) && _dataPackage.games[game].location_name_to_id.exists(name))
 			return _dataPackage.games[game].location_name_to_id[name];
 		return null;
@@ -483,20 +585,31 @@ class Client {
 	/**
 		Resolves an item ID into the name of that item.
 		@param code The item ID to look up.
+		@param game The game to which the item belongs. Defaults to a blank string, which will attempt to devine an item name which may be incorrect if there is an ID collision.
 		@return The name of the item attached to the given ID, or "Unknown" if it was not found.
 	**/
-	public function get_item_name(code:Int):String {
-		if (_items.exists(code))
-			return _items.get(code);
+	public function get_item_name(code:Int, game = ""):String {
+		if (game.length == 0) {
+			if (_items.exists(code))
+				return _items.get(code);
+		} else if (_gameItems.exists(game) && _gameItems[game].exists(code))
+			return _gameItems[game][code];
 		return "Unknown";
 	}
 
-	public function get_hintCostPoints() {
-		if (hintCostPercent <= 0)
-			return hintCostPercent;
-		if (locationCount <= 0)
-			return locationCount;
-		return Math.floor(Math.max(1, hintCostPercent * locationCount / 100));
+	/**
+		Resolves an item name into the ID of that item.
+		@deprecated Usage is not recommended.
+		@param name The name of the item to look up.
+		@param game The game to which the item belongs. Defaults to a blank string, which will attempt to devine an item ID which may be incorrect if there is a name collision.
+		@return The ID associated with the item name, or `null` if it was not found.
+	**/
+	public function get_item_id(name:String, game = ""):Null<Int> {
+		if (game.length == 0)
+			game = this.game;
+		if (_dataPackage.games.exists(game) && _dataPackage.games[game].item_name_to_id.exists(name))
+			return _dataPackage.games[game].item_name_to_id[name];
+		return null;
 	}
 
 	/**
@@ -527,9 +640,7 @@ class Client {
 					text = get_player_alias(id);
 				case JTYPE_ITEM_ID:
 					if (color == null) {
-						if (node.found)
-							color = "green";
-						else if (node.flags.isAdvancement)
+						if (node.flags.isAdvancement)
 							color = "plum";
 						else if (node.flags.isNeverExclude)
 							color = "slateblue";
@@ -538,25 +649,29 @@ class Client {
 						else
 							color = "cyan";
 					}
-					text = get_item_name(id);
+					text = get_item_name(id, get_player_game(node.player));
 				case JTYPE_LOCATION_ID:
 					if (color == null)
 						color = "blue";
-					text = get_location_name(id);
+					text = get_location_name(id, get_player_game(node.player));
 				default:
 					text = node.text;
 			}
-			if (fmt == RenderFormat.ANSI) {
-				if (color == null && colorIsSet) {
-					out += color2ansi("");
-					colorIsSet = false;
-				} else if (color != null) {
-					out += color2ansi(color);
-					colorIsSet = true;
-				}
-				out += deansify(text);
-			} else
-				out += text;
+			switch (fmt) {
+				case HTML:
+				// not implemented yet
+				case ANSI:
+					if (color == null && colorIsSet) {
+						out += color2ansi(""); // reset colour
+						colorIsSet = false;
+					} else if (color != null) {
+						out += color2ansi(color);
+						colorIsSet = true;
+					}
+					out += deansify(text);
+				case TEXT:
+					out += text;
+			}
 		}
 		if (fmt == RenderFormat.ANSI && colorIsSet)
 			out += color2ansi("");
@@ -592,9 +707,14 @@ class Client {
 		if (state == State.SLOT_CONNECTED)
 			return InternalSend(OutgoingPacket.LocationChecks(locations));
 		else
-			for (i in locations)
-				_checkQueue.add(i);
-		// TODO: [upstream] this needs to be sent at some point
+			_offlineLock.execute(() -> {
+				for (i in locations)
+					_offlineQueue.push(Check(i));
+			});
+		for (loc in locations) {
+			_checkedLocations.add(loc);
+			_missingLocations.remove(loc);
+		}
 		return true;
 	}
 
@@ -607,9 +727,10 @@ class Client {
 		if (state == State.SLOT_CONNECTED)
 			return InternalSend(OutgoingPacket.LocationScouts(locations, create_as_hint));
 		else
-			for (i in locations)
-				_checkQueue.add(i);
-		// TODO: [upstream] this needs to be sent at some point
+			_offlineLock.execute(() -> {
+				for (i in locations)
+					_offlineQueue.push(Scout(i, create_as_hint));
+			});
 		return true;
 	}
 
@@ -619,7 +740,7 @@ class Client {
 		@param password The password for this multiworld, if any.
 		@param items_handling The flags regarding how item processing will be handled.
 		@param tags The capability tags for this session. Defaults to `[]`.
-		@param ver The minimum version number for this client. Currently defaults to 0.4.1; later versions may change this.
+		@param ver The minimum version number for this client. Currently defaults to 0.4.6; later versions may change this.
 	**/
 	public function ConnectSlot(name:String, password:Null<String>, items_handling:Int, ?tags:Array<String>, ?ver:NetworkVersion):Bool {
 		if (state < State.SOCKET_CONNECTED)
@@ -631,7 +752,7 @@ class Client {
 			ver = {
 				major: 0,
 				minor: 4,
-				build: 1,
+				build: 6,
 			};
 
 		// HACK: because "class" is getting dropped every time I try to process this with tink
@@ -657,6 +778,8 @@ class Client {
 		if (items_handling == null && tags == null)
 			return false;
 
+		if (tags != null)
+			_tags = tags;
 		return InternalSend(OutgoingPacket.ConnectUpdate(items_handling, tags));
 	}
 
@@ -675,10 +798,10 @@ class Client {
 		@param include Optional. The games to include in the Data Package request. If not specified, will retrieve the complete Data Package.
 		@return Whether the operation was successful.
 	**/
-	public function GetDataPackage(?include:Array<String>):Bool {
+	public function GetDataPackage(?games:Array<String>):Bool {
 		if (state < State.SLOT_CONNECTED)
 			return false;
-		return InternalSend(OutgoingPacket.GetDataPackage(include));
+		return InternalSend(OutgoingPacket.GetDataPackage(games));
 	}
 
 	/**
@@ -757,10 +880,10 @@ class Client {
 			});
 		}
 
-		_msgLock.acquire();
-		var grabQueue = _packetQueue.slice(0);
-		_packetQueue = [];
-		_msgLock.release();
+		_recvLock.acquire();
+		var grabQueue = _recvQueue.slice(0);
+		_recvQueue = [];
+		_recvLock.release();
 
 		#if debug
 		if (grabQueue.length > 0)
@@ -769,13 +892,14 @@ class Client {
 
 		for (packet in grabQueue) {
 			switch (packet) {
-				case RoomInfo(version, _, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_versions,
-					datapackage_checksums, seed_name, time):
-					localConnectTime = Timer.stamp();
+				case RoomInfo(version, genver, tags, password, permissions, hint_cost, location_check_points, games, _, datapackage_checksums, seed_name, time):
 					_hasBeenConnected = true;
+					localConnectTime = Timer.stamp();
 					serverConnectTime = time;
+					serverVersion = [version["major"], version["minor"], version["build"]];
 					seed = seed_name;
 					hintCostPercent = hint_cost;
+					hasPassword = password;
 					hintPoints *= location_check_points;
 					_tags = tags;
 					if (state < State.ROOM_INFO)
@@ -783,28 +907,24 @@ class Client {
 					_hOnRoomInfo();
 
 					dataPackageValid = true;
-					var include:Array<String> = [];
-					for (game => ver in datapackage_versions) {
+					var games = new Set<String>();
+					for (game => csum in datapackage_checksums) {
 						try {
-							if (ver < 1) { // don't cache for version 0
-								include.push(game);
+							if (!_dataPackage.games.exists(game)) { // new game
+								games.add(game);
 								continue;
 							}
-							if (_dataPackage.games[game] == null) { // new game
-								include.push(game);
-								continue;
-							}
-							if (_dataPackage.games[game].version != ver) { // existing update
-								include.push(game);
+							if (_dataPackage.games[game].checksum != csum) { // existing update
+								games.add(game);
 								continue;
 							}
 						} catch (e) {
 							trace(e.message);
-							include.push(game);
+							games.add(game);
 						}
 					}
-					if (!(dataPackageValid = include.length > 0))
-						GetDataPackage(include);
+					if (!(dataPackageValid = games.length > 0))
+						GetDataPackage(games.toArray());
 					#if debug
 					else
 						trace("DataPackage up to date");
@@ -819,18 +939,36 @@ class Client {
 					this.clientStatus = ClientStatus.CONNECTED;
 					this.team = team;
 					slotnr = slot;
-					_players = [];
+					_players = players;
 					locationCount = missing_locations.length + checked_locations.length;
+					_slotInfo = [];
+					for (id => info in slot_info)
+						_slotInfo.set(Std.parseInt(id), info);
 					hintPoints = hint_points;
-					for (player in players)
-						_players.push({
-							team: player.team,
-							slot: player.slot,
-							alias: player.alias,
-							name: player.name
+
+					_checkedLocations = new Set<Int>(checked_locations);
+					_missingLocations = new Set<Int>(missing_locations);
+
+					if (_offlineQueue.length > 0) {
+						var checks:Set<Int> = new Set<Int>(),
+							scouts:Map<Int, Set<Int>> = [];
+						_offlineLock.execute(() -> {
+							for (q in _offlineQueue)
+								switch (q) {
+									case Check(id):
+										checks.add(id);
+									case Scout(id, asHint):
+										if (scouts.exists(asHint)) scouts[asHint].add(id); else (scouts.set(asHint, new Set([id])));
+								}
+							_offlineQueue = [];
 						});
+						if (checks.length > 0)
+							LocationChecks(checks.toArray());
+						for (asHint => ids in scouts)
+							LocationScouts(ids.toArray(), asHint);
+					}
+
 					_hOnSlotConnected(slot_data);
-					// TODO: [upstream] store checked/missing locations
 					_hOnLocationChecked(checked_locations);
 
 				case ReceivedItems(index, items):
@@ -842,11 +980,22 @@ class Client {
 				case LocationInfo(locations):
 					_hOnLocationInfo(locations);
 
-				case RoomUpdate(_, tags, _, _, _, _, _, _, _, _, _, _, hint_points, _, checked_locations, missing_locations):
-					// TODO: [upstream] store checked/missing locations
-					hintPoints = hint_points;
-					_tags = tags;
-					_hOnLocationChecked(checked_locations);
+				case RoomUpdate(_, _, tags, password, _, _, _, _, _, _, _, _, players, checked_locations, hint_points):
+					if (checked_locations != null && checked_locations.length > 0) {
+						for (loc in checked_locations) {
+							_checkedLocations.add(loc);
+							_missingLocations.remove(loc);
+						}
+						_hOnLocationChecked(checked_locations);
+					}
+					if (tags != null)
+						_tags = tags;
+					if (password != null)
+						hasPassword = password;
+					if (players != null)
+						_players = players;
+					if (hint_points != null)
+						hintPoints = hint_points;
 
 				case DataPackage(pdata):
 					var data:DataPackageObject = {
@@ -859,7 +1008,7 @@ class Client {
 					dataPackageValid = true;
 					_hOnDataPackageChanged(_dataPackage);
 
-				case Print(text):
+				case Print(text): // NOTE: no longer present in spec
 					_hOnPrint(text);
 
 				case PrintJSON(data, type, receiving, item, found, team, slot, message, tags, countdown):
@@ -900,15 +1049,20 @@ class Client {
 		if (_ws != null)
 			_ws.close();
 		_ws = null;
-		_checkQueue.clear();
-		_scoutQueue.clear();
+		_offlineQueue = [];
+		_sendQueue = [];
+		_recvQueue = [];
 		seed = "";
 		slot = "";
 		team = -1;
 		slotnr = -1;
 		_players = [];
 		connectAttempts = 0;
+		_hasTriedWSS = false;
+		_hasBeenConnected = false;
 		this.clientStatus = ClientStatus.UNKNOWN;
+		state = State.DISCONNECTED;
+		hasPassword = false;
 	}
 
 	/** Called when the websocket is opened. **/
@@ -953,20 +1107,19 @@ class Client {
 		#end
 		switch (msg) {
 			case StrMessage(content):
-				_msgLock.acquire();
-				try {
-					#if debug
-					trace(content);
-					#end
-					var newPackets:Array<IncomingPacket> = TJson.parse(content);
-					trace(newPackets);
-					for (newPacket in newPackets)
-						_packetQueue.push(newPacket);
-				} catch (e) {
-					trace("EXCEPTION: " + e);
-					_hOnThrow("onmessage", e);
-				}
-				_msgLock.release();
+				_recvLock.execute(() -> {
+					try {
+						var newPackets:Array<IncomingPacket> = TJson.parse(content);
+						#if debug
+						trace(newPackets);
+						#end
+						for (newPacket in newPackets)
+							_recvQueue.push(newPacket);
+					} catch (e) {
+						trace("EXCEPTION onmessage: " + e);
+						_hOnThrow("onmessage", e);
+					}
+				});
 
 			default:
 		}
@@ -980,7 +1133,9 @@ class Client {
 		#if debug
 		trace("onerror()");
 		#end
+		_hOnSocketError(Std.string(e));
 		_hOnThrow("onerror", e);
+		// TODO: this is where apclientpp switches between wss and ws
 	}
 
 	/** Creates a new websocket client and connects to the server. **/
