@@ -41,3 +41,11 @@ enum RenderFormat {
 	/** Render the packets as ANSI text. **/
 	ANSI;
 }
+
+/** Queue kept for when checks and scouts cannot be sent (such as when the client is disconnected). **/
+enum OfflineQueueType {
+	/** A queued check. **/
+	Check(id:Int);
+	/** A queued scout. **/
+	Scout(id:Int, asHint:Int);
+}
